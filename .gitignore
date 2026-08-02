@@ -1,5 +1,8 @@
 /.bundle/
 /Gemfile.lock
+
+# Per-machine agent settings
+/.claude/settings.local.json
 /doc/
 /log/*.log
 /pkg/
