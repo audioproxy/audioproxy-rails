@@ -142,7 +142,8 @@ Round explicitly where the number is computed (`t: (0.1 + 0.2).round(3)`) so the
 
 ```ruby
 Audioproxy.url_for(source, raw: "f:opus/t:12.5:30")
-Audioproxy.url_for(source, raw: "f:opus", br: 96)   # ArgumentError
+Audioproxy.url_for(source, raw: "f:opus", br: 96)        # ArgumentError
+Audioproxy.url_for(source, raw: "f:opus", bitrate: 96)   # ArgumentError — an alias is a typed key
 ```
 
 `config.default_options` applies to every call. Typed defaults merge under typed per-call keys, key by key:
@@ -153,7 +154,7 @@ Audioproxy.configure { |c| c.default_options = { f: :opus, br: 96 } }
 Audioproxy.url_for(source, br: 128)   # => .../f:opus/br:128/...
 ```
 
-A per-call `raw:` replaces the defaults entirely, and so do per-call typed keys when the default is a `raw:` string; mixing the two spellings within `default_options` itself raises at configuration time. String keys work throughout, so a value read from YAML or ENV behaves the same. With no options and no defaults, the segment is `f:mp3`, the proxy's default format spelled out, because its path grammar has no optionless form.
+A per-call `raw:` replaces the defaults entirely, and so do per-call typed keys when the default is a `raw:` string — in either vocabulary, since an alias counts as a typed key everywhere `raw:` and typed keys are mutually exclusive. Putting `raw:` and typed keys in `default_options` together raises at configuration time. String keys work throughout, so a value read from YAML or ENV behaves the same. With no options and no defaults, the segment is `f:mp3`, the proxy's default format spelled out, because its path grammar has no optionless form.
 
 ## Per-call overrides
 
