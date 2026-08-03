@@ -25,6 +25,8 @@ site.
   what `raw:` strings and proxy error messages contain, and they stay first-class in the docs.
 - Aliases for *values* (`format: :opus_audio`). Values are the proxy's domain (D1 of the previous
   slice); an alias vocabulary for them would be the client-side rule set that slice exists to avoid.
+  D6 accepts an `ActiveSupport::Duration` where a number of seconds is already accepted, which is a
+  Ruby *type* the caller may write the value in, not a second vocabulary of values.
 - Multiple aliases per key. One alternative spelling, not a thesaurus.
 - Anything that changes rendered bytes. If this slice changes a single URL, it is wrong.
 
@@ -95,6 +97,39 @@ caller guessing an alias that is not in the table (`bit_rate:`, `samplerate:`). 
 twenty-eight accepted spellings in one error is noise; naming both vocabularies and listing the
 canonical fourteen is the balance.
 
+### D6: `ActiveSupport::Duration` is accepted for the time-valued keys
+
+`t: 30.seconds`, `t: [12.5, 1.minute]`, `fade: [1.5.seconds, 2.seconds]` render exactly as the
+equivalent numbers do. Accepted for `t` and `fade` only, which are the keys whose values *are*
+seconds; a `Duration` anywhere else (`br: 3.seconds`) raises, because a bitrate expressed as a
+duration is a bug, and rendering `br:3` from it would be a plausible-but-wrong URL of exactly the
+kind this gem exists to catch. That is a judgement about which Ruby type carries meaning for a key,
+not about the value's domain, so it does not reopen D1 of the previous slice.
+
+Two things make this worth writing down rather than leaving to the implementer:
+
+- **`Duration` is not caught by `case value when Numeric`.** It overrides `is_a?` to answer `true`
+  for `Numeric`, but `Module#===` performs the real type check and ignores that override, so
+  `Numeric === 30.seconds` is `false` and the `case` falls through to the `else` branch. Today that
+  means `t: 30.seconds` raises `"must be numbers, strings or symbols, got ActiveSupport::Duration"`
+  while `30.seconds.is_a?(Numeric)` is `true` — an error message the caller cannot act on. The
+  implementation needs an explicit `when ActiveSupport::Duration`, and the misleading rejection is
+  reason enough to do this here rather than defer it again.
+- **Conversion is exact and already correct.** `Duration#to_r` gives `30/1` for `30.seconds` and
+  `90/1` for `1.5.minutes`, so it feeds the existing `exact_decimal` path with no new number
+  handling and no new rounding rules. Sub-second durations (`0.5.seconds`) work for the same reason.
+
+Calendar-variable units (`1.month`, `1.year`) resolve through `Duration`'s own average-seconds
+definition rather than a rule invented here. They are absurd as a trim and nothing stops them, which
+is the same stance the gem takes on `br: 999999`.
+
+This is the one place ActiveSupport buys something real in `Options`. The rest of the module stays
+stdlib by preference rather than by rule (only `Signer` is bound by the extraction seam), and in
+particular `ActiveSupport::NumberHelper.number_to_rounded` must **not** be used for rendering: it
+rounds `0.1234` to `"0.123"` instead of raising, which is the failure D2 of the previous slice
+exists to prevent, and its decimal separator comes from I18n, so under a `:de` locale it renders
+`12.5` as `"12,5"` and the signed bytes of a URL would depend on the app's current locale.
+
 ## Risks / Trade-offs
 
 - [Two vocabularies to keep in sync as the proxy adds keys] → A new proxy key needs two lines rather
@@ -106,3 +141,7 @@ canonical fourteen is the balance.
 - [Callers mixing vocabularies within one call (`format: :opus, br: 96`) produce readable-but-
   inconsistent code] → Not an error. It renders correctly and unambiguously, and a house style is a
   linting matter, not a URL builder's business.
+- [Accepting `Duration` for `t` and `fade` but not elsewhere is a per-key value rule, and the gem has
+  none of those] → It is a rule about types, not values, and it exists to keep `br: 3.seconds` from
+  rendering. If a later proxy key takes seconds, it joins the list; the list living next to
+  `MULTI_PART_KEYS`, which is already per-key knowledge, keeps that cheap.

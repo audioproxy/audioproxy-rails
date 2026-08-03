@@ -48,6 +48,27 @@ Giving both the canonical key and its alias for the same option in a single call
 - **WHEN** `default_options` is assigned `{ bitrate: 96, br: 128 }`
 - **THEN** an `ArgumentError` is raised at assignment
 
+### Requirement: Durations for the time-valued keys
+The keys whose values are seconds (`t`, `fade`) SHALL accept an `ActiveSupport::Duration`, rendered
+identically to the equivalent number. A `Duration` given for any other key SHALL raise an
+`ArgumentError`.
+
+#### Scenario: Duration renders as seconds
+- **WHEN** `url_for(source, t: 30.seconds)` is called
+- **THEN** the options segment is `t:30`
+
+#### Scenario: Durations inside a multi-part value
+- **WHEN** `fade: [1.5.seconds, 2.seconds]` is passed
+- **THEN** the segment is `fade:1.5:2`
+
+#### Scenario: Durations and numbers mix
+- **WHEN** `t: [12.5, 1.minute]` is passed
+- **THEN** the segment is `t:12.5:60`
+
+#### Scenario: Duration on a key that does not take seconds raises
+- **WHEN** `br: 3.seconds` is passed
+- **THEN** an `ArgumentError` is raised rather than `br:3` being rendered
+
 ### Requirement: Unknown keys still raise, naming both vocabularies
 An unrecognized key SHALL continue to raise an `ArgumentError` listing the canonical keys, and the
 message SHALL note that spelled-out aliases are also accepted.

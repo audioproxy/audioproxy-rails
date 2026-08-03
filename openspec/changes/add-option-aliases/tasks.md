@@ -22,14 +22,26 @@
 - [ ] 3.3 Tests: aliased default overridden by a canonical per-call key and the reverse, ordering
   preserved, conflicting defaults rejected at assignment
 
-## 4. Byte-stability guard
+## 4. Durations
 
-- [ ] 4.1 Test that an aliased call and its canonical equivalent produce identical URLs, signature
-  included, across the multi-part and number-formatting cases. If this slice changes any rendered
-  byte, it is wrong
+- [ ] 4.1 Accept `ActiveSupport::Duration` for `t` and `fade` via an explicit `when` clause —
+  `case … when Numeric` does not match it, since `Module#===` ignores `Duration`'s overridden
+  `is_a?` — and feed it to the existing decimal path through `to_r`, which is exact
+- [ ] 4.2 Raise `ArgumentError` for a `Duration` on any other key, so `br: 3.seconds` cannot render
+  `br:3`
+- [ ] 4.3 Tests: `t: 30.seconds` → `t:30`, `fade: [1.5.seconds, 2.seconds]` → `fade:1.5:2`, durations
+  mixed with numbers in one array, sub-second durations, `br: 3.seconds` raising
 
-## 5. Documentation
+## 5. Byte-stability guard
 
-- [ ] 5.1 README: add the alias column to the key table, state that both spellings are accepted and
+- [ ] 5.1 Test that an aliased call and its canonical equivalent produce identical URLs, signature
+  included, across the multi-part and number-formatting cases, and that a `Duration` renders the
+  same URL as the number of seconds it stands for. If this slice changes any rendered byte, it is
+  wrong
+
+## 6. Documentation
+
+- [ ] 6.1 README: add the alias column to the key table, state that both spellings are accepted and
   that the canonical short keys remain first-class (they are what `raw:` strings and the proxy's own
-  error messages use), and document the both-spellings error
+  error messages use), document the both-spellings error, and show `t: 30.seconds` for the
+  time-valued keys

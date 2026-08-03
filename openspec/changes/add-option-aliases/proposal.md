@@ -27,13 +27,18 @@ the previous slice pinned.
   that rejects `raw:` alongside typed keys: two sources of truth for one segment is ambiguity.
 - The unknown-key error grows to mention that aliases exist, so a caller who guessed
   `bit_rate:` is pointed at both spellings.
+- `ActiveSupport::Duration` is accepted for the two keys whose values are seconds: `t: 30.seconds`,
+  `fade: [1.5.seconds, 2.seconds]`. Today those raise, and misleadingly — `Duration` answers `true`
+  to `is_a?(Numeric)` but is not matched by `case … when Numeric`, so the caller gets "must be
+  numbers" for something that says it is one. Same slice, same shape: a Rails-idiomatic spelling
+  resolving to bytes that do not change.
 
 ## Capabilities
 
 ### Modified Capabilities
 
 - `options-rendering`: option keys may be written as spelled-out aliases as well as the proxy's
-  canonical short keys.
+  canonical short keys, and the time-valued keys accept an `ActiveSupport::Duration`.
 
 ## Impact
 
