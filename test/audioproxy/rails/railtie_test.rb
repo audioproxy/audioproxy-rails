@@ -193,8 +193,10 @@ class Audioproxy::Rails::RailtieTest < ActiveSupport::TestCase
     end
   end
 
-  # ActiveModel's boolean cast would read every one of these as true, which is
-  # the direction that silently ships unsigned URLs.
+  # ActiveModel's boolean cast — the thing not used here — answers all of these
+  # without complaint: "off" false, and every other one true, including "no".
+  # Either way it is an answer where the honest one is that the value is not a
+  # boolean, and the true direction is the one that silently ships unsigned URLs.
   [ "flase", "yes", "no", "on", "off", "2" ].each do |garbage|
     test "AP_ALLOW_INSECURE=#{garbage} raises rather than guessing" do
       error = assert_raises(ArgumentError) { apply(env: { "AP_ALLOW_INSECURE" => garbage }) }

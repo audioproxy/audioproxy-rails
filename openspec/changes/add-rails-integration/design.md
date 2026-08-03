@@ -46,7 +46,10 @@ Added during implementation, after outside review. Two rules, one reason.
 `AP_ALLOW_INSECURE` and a credentials `unsigned` accept only the literals Go's `strconv.ParseBool`
 does — `1`, `t`, `true`, `0`, `f`, `false` — compared case-insensitively, plus a YAML boolean or an
 unquoted `1`/`0`, which YAML hands over as an Integer. Anything else raises. Alternative —
-ActiveSupport's boolean cast — rejected: it reads every unrecognized string as true, so
+`ActiveModel::Type::Boolean` — rejected twice over. ActiveSupport ships no boolean caster at all,
+so the one Rails has lives in ActiveModel, which this gem does not depend on; adopting it would
+mean a new runtime dependency for four settings. And it treats an explicit false-set as falsy and
+*everything else* as true, so `flase`, `maybe`, `yes` and `2` all cast to true, and
 `AP_ALLOW_INSECURE=flase` would put a production app on unsigned URLs. Note the accepted set is a
 strict superset of `ParseBool`, which rejects mixed spellings like `TrUe`; the extra spellings are
 unambiguous and erring toward acceptance is safe in a way erring toward `true` is not.
