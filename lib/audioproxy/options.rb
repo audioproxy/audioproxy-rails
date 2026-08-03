@@ -24,6 +24,13 @@ module Audioproxy
     # normalized options string into its cache key.
     MAX_DECIMALS = 3
 
+    # Characters a rendered value may not carry. The builder supplies '/' and
+    # ':', so a value containing either silently invents a segment or a part.
+    # '?' and '#' end the path as far as a browser is concerned, which truncates
+    # what the proxy receives below what was signed: a 403 at request time, far
+    # from the call. Whitespace and control characters are not URL bytes at all.
+    SEPARATORS = %r{[/:?#\s]|[[:cntrl:]]}
+
     class << self
       # Renders an ordered key => value Hash into an options segment. Caller
       # order is preserved (D4); normalization is the proxy's business.
@@ -38,29 +45,20 @@ module Audioproxy
           raise ArgumentError, "unknown Audioproxy option #{key.inspect}; known keys are #{KEYS.join(", ")}"
         end
 
-        rendered = render_value(key, value)
-        if rendered.empty?
-          raise ArgumentError, "Audioproxy option #{key}: rendered to an empty value"
-        end
-        # A slash would silently split one segment into two and shift the whole
-        # path — signed, accepted by nothing.
-        if rendered.include?("/")
-          raise ArgumentError, "Audioproxy option #{key}: must not contain '/', got #{rendered.inspect} (use raw: to write a whole options string)"
-        end
-
-        "#{key}:#{rendered}"
+        "#{key}:#{render_value(key, value)}"
       end
 
       # The proxy's canonical minimal number spelling. Strings and symbols pass
       # through untouched — the caller opted out of formatting.
-      #
-      # Rendering goes through an explicit decimal path rather than Float#to_s,
-      # which produces the +1.0e-05+ exponent forms the grammar rejects.
       def format_number(value)
         case value
         when String then value
         when Symbol then value.to_s
         when Integer then value.to_s
+        when Complex
+          # Numeric, but Complex#round is undefined and Complex#to_r silently
+          # drops a zero imaginary part. Neither is a number this grammar has.
+          raise ArgumentError, "Audioproxy option values must be real numbers, got #{value.inspect}"
         when Numeric then format_decimal(value)
         else
           raise ArgumentError, "Audioproxy option values must be numbers, strings or symbols, got #{value.class}"
@@ -96,9 +94,26 @@ module Audioproxy
           value.map { |part| format_part(key, part) }.join(":")
         end
 
+        def format_part(key, value)
+          rendered = render_part(key, value)
+
+          # Every part is validated on its own, not the assembled segment: an
+          # empty part between two separators (t::30) reads as a whole value.
+          if rendered.empty?
+            raise ArgumentError, "Audioproxy option #{key}: has an empty value"
+          end
+          if (offender = rendered[SEPARATORS])
+            raise ArgumentError,
+              "Audioproxy option #{key}: must not contain #{offender.inspect}, got #{rendered.inspect}. " \
+              "The builder supplies the separators; pre-encode the value, or use raw: to write the whole options string."
+          end
+
+          rendered
+        end
+
         # dl: and cb: are opaque to the proxy, so they are opaque here too: a
         # filename or cache buster is whatever the caller wrote.
-        def format_part(key, value)
+        def render_part(key, value)
           return format_number(value) unless OPAQUE_KEYS.include?(key)
 
           case value
@@ -109,25 +124,58 @@ module Audioproxy
           end
         end
 
+        # Rendering is exact integer arithmetic on the value's decimal form.
+        # Neither Float#to_s nor format("%.3f") can do this job alone: the
+        # former emits the +1.0e-05+ exponent shapes the grammar rejects, and
+        # the latter re-reads the underlying binary value, so it renders
+        # 12345678901234.56 as "12345678901234.561" and truncates a BigDecimal
+        # to a double on the way past.
         def format_decimal(value)
-          unless value.finite?
-            raise ArgumentError, "Audioproxy option value #{value} is not a finite number"
-          end
-
-          rounded = value.round(MAX_DECIMALS)
-          unless rounded == value
+          scaled = exact_decimal(value) * (10 ** MAX_DECIMALS)
+          unless scaled.denominator == 1
             raise ArgumentError,
               "Audioproxy option value #{value.inspect} needs more than #{MAX_DECIMALS} decimal places; " \
               "the proxy caps decimals at #{MAX_DECIMALS} and rejects the rest as excessive precision. " \
               "Round explicitly at the call site if that is what you mean."
           end
 
-          # -0.0 collapses here too: it equals its own truncation.
-          return rounded.to_i.to_s if rounded == rounded.to_i
+          render_scaled(scaled.numerator)
+        end
 
-          # Always MAX_DECIMALS places, so trimming trailing zeros can never eat
-          # a digit before the point.
-          format("%.#{MAX_DECIMALS}f", rounded).sub(/0+\z/, "")
+        # The exact decimal the caller meant, as a Rational.
+        def exact_decimal(value)
+          assert_finite!(value)
+
+          case value
+          when Float
+            # Float#to_s is the shortest decimal that round-trips to this
+            # double, which is the spelling the caller wrote. The double's own
+            # expansion is another number entirely — 0.001 is really
+            # 0.001000000000000000020816…, and rendering *that* would reject
+            # every fractional float as excessive precision.
+            Rational(value.to_s)
+          when Rational then value
+          else
+            # BigDecimal and any other real Numeric: to_r is exact, which is
+            # what a value carrying more digits than a double can hold needs.
+            value.to_r
+          end
+        end
+
+        def assert_finite!(value)
+          return if value.is_a?(Rational) || value.finite?
+
+          raise ArgumentError, "Audioproxy option value #{value} is not a finite number"
+        end
+
+        # scaled is the value times 10**MAX_DECIMALS, exactly. Negative zero
+        # collapses on the way in: -0.0 scales to plain 0.
+        def render_scaled(scaled)
+          sign = scaled.negative? ? "-" : ""
+          whole, fraction = scaled.abs.divmod(10 ** MAX_DECIMALS)
+          return "#{sign}#{whole}" if fraction.zero?
+
+          "#{sign}#{whole}.#{format("%0#{MAX_DECIMALS}d", fraction).sub(/0+\z/, "")}"
         end
     end
   end

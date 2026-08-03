@@ -96,14 +96,42 @@ class Audioproxy::OptionsTest < ActiveSupport::TestCase
     assert_equal "dl:piece-final.mp3", Options.segment(:dl, "piece-final.mp3")
   end
 
-  test "an opaque value carrying a slash raises instead of shifting the path" do
-    error = assert_raises(ArgumentError) { Options.segment(:dl, "album/track.mp3") }
+  # Opaque does not mean unchecked: the builder supplies the separators, and a
+  # value carrying one invents a segment or a part. '?' and '#' are worse — a
+  # browser ends the path there, so the proxy receives less than was signed and
+  # 403s at request time, nowhere near this call.
+  test "an opaque value carrying a separator raises instead of shifting the path" do
+    {
+      "album/track.mp3" => "/",
+      "a:b.mp3" => ":",
+      "track?raw=1" => "?",
+      "track#2" => "#",
+      "two words.mp3" => " ",
+      "track\n.mp3" => "\n"
+    }.each do |value, offender|
+      error = assert_raises(ArgumentError, "expected #{value.inspect} to raise") do
+        Options.segment(:dl, value)
+      end
 
-    assert_match(%r{'/'}, error.message)
+      assert_match(/must not contain #{Regexp.escape(offender.inspect)}/, error.message)
+    end
+  end
+
+  test "a separator in a formatted value raises too" do
+    assert_raises(ArgumentError) { Options.segment(:f, :"opus/mp3") }
+    assert_raises(ArgumentError) { Options.segment(:f, "op us") }
   end
 
   test "an empty value raises rather than signing a blank segment" do
     assert_raises(ArgumentError) { Options.segment(:dl, "") }
+    assert_raises(ArgumentError) { Options.segment(:f, "") }
+  end
+
+  test "an empty part inside a multi-part value raises" do
+    # "t::30" reads as a whole value, not as a missing one.
+    assert_raises(ArgumentError) { Options.segment(:t, [ "", 30 ]) }
+    assert_raises(ArgumentError) { Options.segment(:fade, [ 1, "" ]) }
+    assert_raises(ArgumentError) { Options.segment(:norm, [ :ebu, nil ]) }
   end
 
   test "a nil value raises rather than being dropped" do

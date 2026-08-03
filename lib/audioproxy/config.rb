@@ -1,5 +1,6 @@
 require "uri"
 require "active_support/core_ext/hash/keys"
+require "audioproxy/options"
 
 module Audioproxy
   # Raised when a URL is requested but the configuration cannot produce one the

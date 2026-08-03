@@ -56,6 +56,21 @@ class Audioproxy::OptionsNumberTest < ActiveSupport::TestCase
     refute_includes rendered, "e"
   end
 
+  # A double's spacing exceeds 0.001 past 2**42 or so, and printf("%.3f")
+  # re-reads the underlying binary value rather than the decimal the caller
+  # wrote: it renders 12345678901234.56 as "12345678901234.561". Rendering has
+  # to come from the value's own shortest decimal spelling.
+  test "values larger than a double's decimal spacing render as written" do
+    assert_equal "12345678901234.56", format(12345678901234.56)
+    assert_equal "999999999999999.9", format(999999999999999.9)
+  end
+
+  test "a rendered value never ends in a bare decimal point" do
+    [ 12345678901234.56, 999999999999999.9, 1.0e12, BigDecimal("12345678901234567.5") ].each do |value|
+      refute_match(/\.\z/, format(value), "#{value.inspect} rendered a dangling point")
+    end
+  end
+
   # --- excess precision ----------------------------------------------------
 
   test "more than three decimals raises rather than rounding" do
@@ -91,6 +106,19 @@ class Audioproxy::OptionsNumberTest < ActiveSupport::TestCase
     assert_equal "30", format(BigDecimal("30"))
   end
 
+  # The point of accepting a BigDecimal is carrying more digits than a double
+  # holds, so rendering must not route back through one.
+  test "big decimals keep digits a double would lose" do
+    assert_equal "12345678901234567.5", format(BigDecimal("12345678901234567.5"))
+    assert_equal "123456789012345678901234567890.5",
+      format(BigDecimal("123456789012345678901234567890.5"))
+  end
+
+  test "non-finite big decimals raise" do
+    assert_raises(ArgumentError) { format(BigDecimal("NaN")) }
+    assert_raises(ArgumentError) { format(BigDecimal("Infinity")) }
+  end
+
   test "a big decimal with excess precision raises" do
     assert_raises(ArgumentError) { format(BigDecimal("0.1234")) }
   end
@@ -111,5 +139,13 @@ class Audioproxy::OptionsNumberTest < ActiveSupport::TestCase
     assert_raises(ArgumentError) { format(nil) }
     assert_raises(ArgumentError) { format(true) }
     assert_raises(ArgumentError) { format([ 1, 2 ]) }
+  end
+
+  # Complex is Numeric, but Complex#round does not exist: without an explicit
+  # rejection this escapes as NoMethodError rather than the ArgumentError the
+  # module promises for a value it cannot render.
+  test "complex numbers raise ArgumentError, not NoMethodError" do
+    assert_raises(ArgumentError) { format(Complex(1.0)) }
+    assert_raises(ArgumentError) { format(Complex(1, 2)) }
   end
 end

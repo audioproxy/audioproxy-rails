@@ -73,7 +73,9 @@ Segments render in the order you write the keywords. The gem does not sort them 
 
 `t`, `fade` and `norm` take colon-separated parts, so they take arrays: `t: [12.5, 30]` renders `t:12.5:30`. A single part can be written as a scalar: `t: 12.5` renders `t:12.5`. Symbols and strings render alike, so `f: :opus` and `f: "opus"` are the same URL.
 
-An unrecognized key (`bt: 96`) raises `ArgumentError` listing the keys that exist. Value *domains* are not checked: `br: 999999` renders, and the proxy rejects it with a structured 422. Duplicating the proxy's validation rules here would mean two rule sets drifting apart, with a stale client rejecting URLs a newer proxy accepts.
+An unrecognized key (`bt: 96`) raises `ArgumentError` listing the keys that exist. So does a value carrying a character that would break the path: the gem supplies the `/` and `:` separators, so a value containing one would invent a segment or a part, and a `?` or `#` would end the path in a browser, leaving the proxy with less than what was signed (a 403, at request time, nowhere near the call). Whitespace is rejected for the same reason, which means a `dl:` filename with spaces has to be pre-encoded by you; the gem will not invent an encoding, because that would change the bytes it signs.
+
+Value *domains* are not checked: `br: 999999` renders, and the proxy rejects it with a structured 422. Duplicating the proxy's validation rules here would mean two rule sets drifting apart, with a stale client rejecting URLs a newer proxy accepts.
 
 ### Numbers have one canonical spelling
 
@@ -87,7 +89,7 @@ The proxy renders numbers minimally and hashes the normalized options string int
 | `gain: 0.001` | `gain:0.001`, never `1.0e-03` |
 | `gain: -0.0` | `gain:0` |
 
-Integers, floats, rationals and `BigDecimal`s all go through this. Strings do not: a string value is used verbatim, which is how you opt out of formatting.
+Integers, floats, rationals and `BigDecimal`s all go through this, and the rendering is exact: a `BigDecimal` keeps digits a double would lose, and a large float renders the decimal you wrote rather than the binary value underneath it. Strings do not go through it at all: a string value is used verbatim, which is how you opt out of formatting.
 
 The proxy caps decimals at three places and rejects the rest with `:excessive_precision` rather than rounding, so this gem does the same:
 
