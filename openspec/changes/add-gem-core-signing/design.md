@@ -34,9 +34,20 @@ The gem skeleton (gemspec, namespace split, Minitest harness, dummy app) comes f
 
 ## Decisions
 
-### D1: Everything in this slice is core-namespace only
+### D1: The extraction seam is signature building, not the whole namespace
 
-Per the scaffold slice's namespace split, all code here lives under plain `Audioproxy` with zero Rails/ActiveSupport dependency; nothing touches `Audioproxy::Rails`. The Rails-free load smoke test from the scaffold keeps this honest as behavior arrives.
+Per the scaffold slice's namespace split, all code here lives under plain `Audioproxy`; nothing touches `Audioproxy::Rails`.
+
+**Narrowed after review.** D1 originally required the entire slice to carry "zero Rails/ActiveSupport dependency". That was drawn too wide. This gem is a *Rails integration* — ActiveSupport is a reasonable runtime dependency for it, and refusing one bought nothing but hand-rolled re-implementations of `symbolize_keys`, `assert_valid_keys` and `blank?`.
+
+What genuinely needs to stay portable is **signature building**: the piece a future project might want as a standalone, Rails-free gem. So the boundary moves from the namespace to a single class:
+
+- `Audioproxy::Signer` — HMAC + base64url, nothing else. Depends on stdlib and `base64` only: no ActiveSupport, no Rails, and no other file in this gem. Everything it needs arrives through its constructor. Extracting it is a `git mv` plus a gemspec.
+- Everything else (`Config`, `UrlBuilder`, and the Rails layer) may use ActiveSupport freely.
+
+`Audioproxy::UrlBuilder#sign` stays as the public entry point and delegates: whether the configuration *can* sign is the builder's problem, how the bytes are produced is the signer's.
+
+The old smoke test asserted only that `Rails` was undefined after loading the core, which would have silently permitted an ActiveSupport dependency — it never guarded the half of D1 most likely to erode. The replacement loads `audioproxy/signer` alone in a subprocess and asserts that neither `Rails` nor `ActiveSupport` is defined and that it still reproduces a known-answer vector. That is a test of the seam that actually exists.
 
 ### D2: Config is a plain mutable singleton with an override path
 
@@ -54,6 +65,8 @@ Source strings are emitted as `enc/` + unpadded base64url. The proxy accepts pad
 
 `endpoint` must parse as an absolute `http`/`https` URL and may carry a path prefix. The builder strips at most one trailing `/` from the endpoint and appends `/{signature}{rest_of_path}`. Because the signature covers only `rest_of_path`, a path prefix on the endpoint cannot disturb signing — this is asserted by a dedicated test (same source+options signed under prefixed and unprefixed endpoints produce identical signature segments). No lambda/sharding support.
 
+**Amended after external review (round 1).** "Absolute http(s) URL with an optional path prefix" was under-enforced: `URI::HTTP` is satisfied by userinfo, a query and a fragment, none of which belong in a base URL. `https://user:pass@host` embedded credentials into every generated URL — and therefore into rendered HTML, application logs and CDN access logs — while `https://host?x=1` produced `https://host?x=1/{signature}/…`, where the appended path is swallowed by the query. The endpoint validator now rejects userinfo, query and fragment in addition to a missing or non-http scheme. The userinfo error message deliberately does not echo the offending value, so a rejected credential is not written to the log by the very error that rejects it.
+
 ### D6: `unsigned: true` bypasses key requirements
 
 With `unsigned: true` (config-level or per-call), the signature segment is the literal `insecure` and key/salt may be absent. Signed mode with missing key/salt raises a configuration error naming what is missing. Rationale: dev parity with `AP_ALLOW_INSECURE`, and the failure mode for a misconfigured production app must be loud, not a 403 from the proxy.
@@ -61,6 +74,10 @@ With `unsigned: true` (config-level or per-call), the signature segment is the l
 ### D7: Options input in this slice is `raw:` only
 
 `url_for(source, raw: "f:opus/br:96")` uses the given string verbatim as the options segment. When no options are given and no default options are configured, the builder emits `f:mp3` (the proxy's default format, spelled explicitly) so the path always has an options segment. The raw string is not validated beyond being non-empty without `/` bracketing — the proxy is the validator of option grammar; this gem's typed layer (next slice) will add client-side rendering. Alternative — skip the options segment entirely when empty — rejected: the proxy's path grammar has no optionless form.
+
+**Clarified after external review (round 1).** The "non-empty without `/` bracketing" validation above is normative, and the round-1 implementation omitted it. `raw: "/f:opus"` signed `//f:opus/…` — a doubled separator the proxy rejects, discovered as a 403 at request time rather than at the call site. A bracketing `/` now raises. Blank and whitespace-only strings fall back to `f:mp3`; `raw:` values that are neither `nil` nor a String (notably `false`, which the previous `raw ||=` silently swallowed) raise rather than falling through to the default.
+
+Two adjacent inputs were found to fail the same way and are settled here. `default_options` accepted any object and was read with `[:raw]` only, so `{"raw" => "f:opus"}` — the shape that comes back from YAML, ENV or JSON — was silently dropped and the URL was built with the wrong format. Keys are now normalized to symbols, non-Hash values raise, and an unrecognized key raises rather than being ignored (a dropped typo is a valid URL for the wrong variant). `OPTION_KEYS` is `[:raw]` for this slice and widens in `add-options-rendering`. Likewise `source` was passed through `to_s`, so `url_for(nil)` signed a URL with an empty `enc/` payload; a nil, non-String or empty source now raises.
 
 ### D8: KAT vectors vendored verbatim
 

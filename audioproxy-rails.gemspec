@@ -18,7 +18,18 @@ Gem::Specification.new do |spec|
     Dir["{app,config,db,lib}/**/*", "MIT-LICENSE", "Rakefile", "README.md"]
   end
 
-  # Rails is deliberately *not* a runtime dependency: the core loads Rails-free
-  # and the railtie is required only when Rails is already present.
+  # Declared because Audioproxy::Signer requires it directly. Since Ruby 3.4
+  # base64 is a bundled gem rather than a default one, so leaning on
+  # ActiveSupport to pull it in transitively would be a latent LoadError the
+  # moment that changed.
+  spec.add_dependency "base64"
+
+  # This is a Rails integration, so ActiveSupport is a reasonable runtime
+  # dependency. Audioproxy::Signer deliberately does not use it (D1), which is
+  # what keeps signature building liftable into a standalone gem.
+  spec.add_dependency "activesupport", ">= 7.1"
+
+  # Full Rails is *not* a runtime dependency: the railtie is required only when
+  # Rails is already present.
   spec.add_development_dependency "rails", "~> 8.1", ">= 8.1.3.1"
 end

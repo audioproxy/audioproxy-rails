@@ -14,6 +14,17 @@ The builder SHALL encode the source string as `enc/` + unpadded base64url. The b
 - **WHEN** the source is `s3://masters/a track.wav` (contains a space)
 - **THEN** the source segment is `enc/` followed by the unpadded base64url of the exact source string, with no percent-escaping applied
 
+### Requirement: Source must be a non-empty string
+The builder SHALL raise an `ArgumentError` when the source is `nil`, empty, or not a String, rather than signing a URL with an empty or stringified `enc/` payload.
+
+#### Scenario: Nil source rejected
+- **WHEN** `Audioproxy.url_for(nil)` is called
+- **THEN** an `ArgumentError` is raised, and no URL is returned
+
+#### Scenario: Non-String source rejected
+- **WHEN** `Audioproxy.url_for(123)` is called
+- **THEN** an `ArgumentError` is raised naming the offending class
+
 ### Requirement: Raw options passthrough
 `url_for` SHALL accept `raw:` — a pre-rendered options string used verbatim as the options segment. When no options are supplied (no `raw:`, no default options), the options segment SHALL be `f:mp3` (the proxy's default format made explicit), because the proxy's path grammar has no optionless form.
 
@@ -24,6 +35,18 @@ The builder SHALL encode the source string as `enc/` + unpadded base64url. The b
 #### Scenario: No options at all
 - **WHEN** `url_for` is called with no options and no configured defaults
 - **THEN** the options segment is `f:mp3`
+
+#### Scenario: Blank raw falls back
+- **WHEN** `raw:` is `""` or whitespace only
+- **THEN** the options segment is `f:mp3`
+
+#### Scenario: Slash-bracketed raw rejected
+- **WHEN** `raw:` is `"/f:opus"`, `"f:opus/"`, or `"/f:opus/"`
+- **THEN** an `ArgumentError` is raised, because the builder supplies the separators and a bracketing slash would sign a path containing an empty segment
+
+#### Scenario: Non-String raw rejected
+- **WHEN** `raw:` is `false`
+- **THEN** an `ArgumentError` is raised rather than falling back to the configured default
 
 ### Requirement: Per-call endpoint override
 `url_for` SHALL accept `endpoint:` overriding the configured endpoint for that call only.
