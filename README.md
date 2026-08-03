@@ -10,13 +10,53 @@ Full Rails is a development dependency only. `require "audioproxy"` works in a p
 
 ## Status
 
-Core signing and typed options work, in both the proxy's short spellings and their aliases, as do the Railtie's credentials/ENV wiring and the view helpers. ActiveStorage blob resolution is a follow-up slice; see `openspec/changes/`.
+Core signing and typed options work, in both the proxy's short spellings and their aliases, as do the Railtie's credentials/ENV wiring, the view helpers, and ActiveStorage resolution for the S3 and Disk services. Blobs on any other service raise; see [ActiveStorage](#activestorage) for what to do about that.
 
 ## Installation
 
 ```ruby
 gem "audioproxy-rails"
 ```
+
+## Quick start
+
+Tell the gem where the proxy lives:
+
+```yaml
+# bin/rails credentials:edit
+audioproxy:
+  endpoint: https://audio.example.com
+  key: 7a3f9c21…      # hex, from the proxy's AP_KEY
+  salt: 9c217a3f…     # hex, from the proxy's AP_SALT
+```
+
+Then hand a view an ActiveStorage attachment:
+
+```erb
+<%= audioproxy_audio_tag @recording.audio,
+      format: "opus", bitrate: 96,
+      html: { controls: true } %>
+```
+
+```html
+<audio controls="controls"
+       src="https://audio.example.com/zfLTfPPh…/f:opus/br:96/enc/bG9jYWw6Ly93eC95ei93…"></audio>
+```
+
+That is the whole path. `@recording.audio` is an ordinary `has_one_attached`; the gem reads the storage service the blob lives on, turns it into the source string the proxy speaks (`s3://…` or `local://…`), renders the variant you asked for, and signs the result. The view helpers arrive through a railtie, so there is nothing to include and nothing to mount.
+
+Blobs, attachments and `has_one_attached` associations all work, and so does a plain source string if you are not using ActiveStorage:
+
+```ruby
+Audioproxy.url_for("s3://masters/2026/piece-final.wav", format: "opus", bitrate: 96)
+```
+
+Where to go from here:
+
+- [Options](#options) for the full variant vocabulary, in the proxy's short keys or their spelled-out aliases.
+- [ActiveStorage](#activestorage) for which storage services are supported, and for the one deployment coupling disk storage brings with it.
+- [Rails](#rails) for configuration precedence across credentials, ENV and an initializer.
+- `config.unsigned = true` for development against a proxy running `AP_ALLOW_INSECURE`, where no key or salt is needed.
 
 ## Configuration
 
@@ -241,6 +281,59 @@ Nothing is validated at boot. An app with no credentials and no ENV boots fine �
 ```
 
 The `html:` bucket is not ceremony. Without it, proxy option names and HTML attribute names would share one namespace, and the gem would have to guess which one you meant for any key it did not recognize — so a mistyped `bitrat: 96` would land silently on the `<audio>` element as an attribute and quietly ship the default format instead. With the bucket, the two never mix in either direction: an unknown proxy option raises, and an `html:` entry never reaches the proxy. Proxy options never appear as tag attributes.
+
+### ActiveStorage
+
+Anywhere a source string is accepted, an ActiveStorage blob, an attachment, or a `has_one_attached` association works instead:
+
+```erb
+<%= audioproxy_audio_tag @recording.audio, format: "opus", bitrate: 96 %>
+```
+
+```ruby
+Audioproxy.url_for(recording.audio)        # has_one_attached
+Audioproxy.url_for(recording.audio.blob)   # the blob itself
+```
+
+The blob is turned into a source string by looking at the storage service it lives on — the service class, not the name you gave it in `storage.yml`, since `:local` and `:amazon` are labels an app is free to hang on anything.
+
+| Service | Source string | Status |
+| --- | --- | --- |
+| `S3Service` | `s3://{bucket}/{key}`, bucket read off the service | Supported |
+| `DiskService` | `local://{key[0..1]}/{key[2..3]}/{key}` | Supported, with the deployment coupling below |
+| Anything else — GCS, Azure, Mirror | — | Raises `Audioproxy::UnsupportedServiceError` |
+
+An app's own subclass of a supported service resolves the way its parent does. A Mirror service is *not* unwrapped to its primary, even when that primary is S3: which copy the proxy should read is a deployment decision, so the error names the mirror and leaves the choice to you rather than guessing. Point the blob at the primary service directly if that is what you meant.
+
+Asking for a URL for an empty attachment raises `Audioproxy::UnattachedError` naming the attachment, rather than emitting a URL that would 404 at the proxy.
+
+#### Disk storage couples `AP_LOCAL_ROOT` to your storage root
+
+For `local://` sources, the proxy resolves the path against its own `AP_LOCAL_ROOT`. So **the proxy's `AP_LOCAL_ROOT` must be the same directory as the Disk service's `root`** in `config/storage.yml` — the same volume mounted into both, in a container deployment:
+
+```yaml
+# config/storage.yml
+local:
+  service: Disk
+  root: /var/audio
+```
+
+```bash
+# the proxy
+AP_LOCAL_ROOT=/var/audio
+```
+
+If they disagree, URLs generate fine and the proxy answers 404. The gem cannot check this and does not try: it has no way to see the proxy's environment.
+
+This coupling is not avoidable by pointing the proxy at your app instead. ActiveStorage's ordinary disk URLs are Rails routes that redirect to the file, and the proxy's HTTPS source backend refuses redirects by design.
+
+The two hashed subdirectories in the path are ActiveStorage's own layout for disk storage (`DiskService#path_for`), reproduced here because the proxy needs a path rather than an ActiveStorage lookup. It is the one piece of near-private Rails API this gem leans on, so it lives alone in `Audioproxy::Rails::BlobResolver::DiskLayout`, with a test that pins it against the real `DiskService` in both directions: identical paths for every key the service accepts, and an error for every key it rejects. A Rails upgrade that changed the layout fails the suite rather than silently generating 404s.
+
+Blob keys carrying a `.` or `..` path segment, or a null byte, raise. `DiskService` refuses them as path-traversal defense, and this side has more reason to: it never touches a filesystem, so nothing downstream would catch a key that walks out of the storage root. Keys ActiveStorage generates itself never look like this; explicitly-set keys can. Note that the S3 path does *not* apply the same rule, deliberately — an S3 key is an opaque string in which `..` means nothing, and `S3Service` does not reject it either.
+
+#### Other services: the third rung
+
+GCS, Azure and the rest have no proxy-side counterpart today. The general-purpose answer is ActiveStorage's `rails_storage_proxy` mode — proxied URLs stream the file back with a `200` instead of redirecting — served to the proxy through an `https://` source. That source backend is parked upstream on demand, and this gem is the demand signal for it: if you hit `Audioproxy::UnsupportedServiceError`, say so on the proxy's issue tracker, because you are the person that slice is waiting for.
 
 ## Development
 

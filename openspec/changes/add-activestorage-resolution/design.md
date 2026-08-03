@@ -27,7 +27,9 @@ The resolution ladder (settled): S3 and Disk ship now; the `https` rung is docum
 
 ### D1: Resolution dispatches on the blob's service class, not service name
 
-`blob.service` is inspected by class (`ActiveStorage::Service::S3Service`, `::DiskService`) rather than by the configured service *name* (`:amazon`, `:local` are just labels). Mirror services are not unwrapped (non-goal); they hit the unsupported-service error naming the mirror explicitly. Attachments and `Attached::One` unwrap to their blob first (`#blob`); an unattached `Attached::One` (nil blob) raises an error naming the attachment, distinct from the unsupported-service error.
+`blob.service` is inspected by class (`ActiveStorage::Service::S3Service`, `::DiskService`) rather than by the configured service *name* (`:amazon`, `:local` are just labels). Mirror services are not unwrapped (non-goal); they hit the unsupported-service error naming the mirror explicitly. Attachments and `Attached::One` unwrap to their blob first (`#blob`); an unattached `Attached::One` (nil blob) raises `Audioproxy::UnattachedError` naming the attachment, distinct from the unsupported-service error.
+
+The match is on the class *names* in `service.class.ancestors`, not on the constants themselves. Naming `ActiveStorage::Service::S3Service` in the resolver would load that file, and it requires `aws-sdk-s3` — a gem an app on Disk storage has no reason to bundle, and one this gem must not force. (`defined?` is no escape: it answers for an autoload-registered constant without triggering the load, so the guard would pass and the reference behind it would still raise `LoadError`.) Walking ancestor names rather than matching one name also means an app's own subclass of a supported service resolves the way its parent does, at no extra cost. This is a spelling of D1, not a departure from it: the discriminator is still the service class and never the configured label.
 
 ### D2: S3 → `s3://{bucket}/{key}`
 
@@ -36,6 +38,10 @@ Bucket comes from the service instance (`service.bucket.name` via the aws-sdk re
 ### D3: Disk → `local://{key[0..1]}/{key[2..3]}/{key}`, layout isolated
 
 One module (`BlobResolver::DiskLayout` or similar) owns the two-hashed-subdirectory rule, mirroring `DiskService#path_for`/`folder_for`. If ActiveStorage ever changes the layout, there is exactly one place to touch, and the module's test states the contract against a real `DiskService` instance (cheap: it is filesystem-math only, no files written). The deployment contract — proxy `AP_LOCAL_ROOT` must equal the Disk service root — is README material; the gem cannot verify it and does not try.
+
+Reproducing `folder_for` is necessary but not sufficient, and the first implementation of this decision got it wrong in both directions. `DiskService` does not use the joined string directly: it hands it to `File.expand_path`, which collapses the empty segment `[key[0..1], key[2..3]].join("/")` produces for keys shorter than three characters, and normalizes any separator the key carries itself. So `DiskLayout` must normalize too (`cleanpath`, plus stripping a leading separator) or a key of `"ab"` resolves to `ab//ab` here against `ab/ab` on disk. And `path_for` *rejects* keys with `.`/`..` segments or null bytes before it computes anything, calling it defense in depth; `DiskLayout` must reject the same ones, for a sharper reason — this side never touches a filesystem, so nothing downstream would catch a traversal key, and `"../evil"` would otherwise become `local://..//e/../evil` and send the proxy climbing out of its `AP_LOCAL_ROOT`.
+
+The contract test therefore pins two things, not one: **parity** for every key `DiskService` accepts, and **rejection** for every key it refuses. Its key list must include the short keys (`"a"`, `"ab"`), keys carrying a separator (`"ab/cd"`, `"/foo"`), dot segments and a null byte. Realistic `generate_unique_secure_token` keys alone are worthless as a contract here: they are 28 base36 characters with no separator, which is exactly the region where a naive `"#{folder}/#{key}"` agrees with `DiskService` — the original test used only such keys and passed while the layout was wrong.
 
 ### D4: Unsupported services raise `Audioproxy::UnsupportedServiceError`
 

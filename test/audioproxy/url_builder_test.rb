@@ -120,6 +120,62 @@ class Audioproxy::UrlBuilderTest < ActiveSupport::TestCase
     assert_match(/Integer/, error.message)
   end
 
+  # --- source resolver hook ------------------------------------------------
+  #
+  # The core knows nothing about ActiveStorage; it knows only that something
+  # may have registered itself as the translator of non-String sources (D5).
+
+  test "a non-String source raises when no resolver is registered" do
+    without_source_resolver do
+      error = assert_raises(ArgumentError) { @builder.url_for(Object.new) }
+
+      assert_match(/Object/, error.message)
+    end
+  end
+
+  test "String sources never reach the resolver" do
+    reached = false
+
+    with_source_resolver(->(_source) { reached = true; "local://resolved.wav" }) do
+      url = @builder.url_for("local://a.wav", raw: "f:mp3")
+
+      assert_equal "local://a.wav", decode_base64url(url.split("/enc/").last)
+    end
+
+    refute reached
+  end
+
+  test "a registered resolver turns a non-String source into the enc segment" do
+    source = Object.new
+
+    with_source_resolver(->(given) { assert_same source, given; "s3://masters/abc123" }) do
+      url = @builder.url_for(source, raw: "f:mp3")
+
+      assert_equal "s3://masters/abc123", decode_base64url(url.split("/enc/").last)
+    end
+  end
+
+  test "a resolver that returns a non-String raises rather than stringifying it" do
+    with_source_resolver(->(_source) { 123 }) do
+      error = assert_raises(ArgumentError) { @builder.url_for(Object.new) }
+
+      assert_match(/resolver/, error.message)
+      assert_match(/Integer/, error.message)
+    end
+  end
+
+  test "a resolver that returns an empty String raises" do
+    with_source_resolver(->(_source) { "" }) do
+      assert_raises(ArgumentError) { @builder.url_for(Object.new) }
+    end
+  end
+
+  test "registering something that cannot be called raises at registration" do
+    without_source_resolver do
+      assert_raises(ArgumentError) { Audioproxy.register_source_resolver("not callable") }
+    end
+  end
+
   # --- options -------------------------------------------------------------
 
   test "raw options are used verbatim" do
@@ -535,5 +591,24 @@ class Audioproxy::UrlBuilderTest < ActiveSupport::TestCase
     # matter here: this only round-trips the source, it does not pin a contract.
     def decode_base64url(segment)
       Base64.urlsafe_decode64(segment).force_encoding(Encoding::UTF_8)
+    end
+
+    # The resolver is process-global, and under the dummy app the railtie has
+    # already registered the real one — so these swap and restore rather than
+    # assuming they start from nothing.
+    def with_source_resolver(resolver)
+      previous = Audioproxy.source_resolver
+      Audioproxy.register_source_resolver(resolver)
+      yield
+    ensure
+      previous.nil? ? Audioproxy.reset_source_resolver : Audioproxy.register_source_resolver(previous)
+    end
+
+    def without_source_resolver
+      previous = Audioproxy.source_resolver
+      Audioproxy.reset_source_resolver
+      yield
+    ensure
+      Audioproxy.register_source_resolver(previous) unless previous.nil?
     end
 end

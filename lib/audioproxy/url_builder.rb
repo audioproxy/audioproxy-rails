@@ -102,15 +102,34 @@ module Audioproxy
       # The proxy accepts padded and unpadded enc/ payloads; emitting exactly
       # one spelling keeps URLs (and CDN cache keys) stable.
       def source_segment(source)
-        string = String.try_convert(source)
-        if string.nil?
-          raise ArgumentError, "source must be a String, got #{source.class}"
-        end
+        string = String.try_convert(source) || resolved_source(source)
         if string.empty?
           raise ArgumentError, "source must not be empty"
         end
 
         "enc/#{base64url(string)}"
+      end
+
+      # Non-String sources go through the registered resolver, or nowhere. The
+      # core names no ActiveStorage constant; it only knows that something else
+      # may have claimed the job of turning objects into source strings.
+      def resolved_source(source)
+        resolver = Audioproxy.source_resolver
+        if resolver.nil?
+          raise ArgumentError,
+            "source must be a String, got #{source.class} (ActiveStorage blobs " \
+            "and attachments resolve only where the Rails integration is loaded)"
+        end
+
+        resolved = resolver.call(source)
+        string = String.try_convert(resolved)
+        if string.nil?
+          raise ArgumentError,
+            "the registered Audioproxy source resolver returned #{resolved.class} " \
+            "for #{source.class}, not a source String"
+        end
+
+        string
       end
 
       # Unpadded, per D3/D4: the proxy accepts both spellings, but emitting one
