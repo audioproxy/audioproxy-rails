@@ -37,6 +37,24 @@ module Audioproxy
         ActiveSupport.on_load(:action_view) { include Audioproxy::Rails::Helpers }
       end
 
+      # Teaches the core to accept blobs and attachments. ActiveStorage ships no
+      # load hook to hang this on, so it is a plain initializer guarded on the
+      # constant: railties are all loaded before any initializer runs, so an app
+      # that has ActiveStorage has it defined by now, and an app that dropped
+      # active_storage/engine from its requires never registers a resolver and
+      # keeps the core's plain "source must be a String".
+      #
+      # Requiring here rather than at the top of the file keeps the resolver —
+      # and its ActiveStorage constants — out of the load path of apps without
+      # it. The file itself names no service class, so nothing is loaded that
+      # would drag in aws-sdk-s3.
+      initializer "audioproxy.active_storage" do
+        if defined?(::ActiveStorage)
+          require "audioproxy/rails/blob_resolver"
+          Audioproxy.register_source_resolver(Audioproxy::Rails::BlobResolver)
+        end
+      end
+
       class << self
         # Sources each attribute independently: credentials first, ENV where
         # credentials are silent, nothing at all where both are. Absent

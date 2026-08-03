@@ -27,7 +27,9 @@ The resolution ladder (settled): S3 and Disk ship now; the `https` rung is docum
 
 ### D1: Resolution dispatches on the blob's service class, not service name
 
-`blob.service` is inspected by class (`ActiveStorage::Service::S3Service`, `::DiskService`) rather than by the configured service *name* (`:amazon`, `:local` are just labels). Mirror services are not unwrapped (non-goal); they hit the unsupported-service error naming the mirror explicitly. Attachments and `Attached::One` unwrap to their blob first (`#blob`); an unattached `Attached::One` (nil blob) raises an error naming the attachment, distinct from the unsupported-service error.
+`blob.service` is inspected by class (`ActiveStorage::Service::S3Service`, `::DiskService`) rather than by the configured service *name* (`:amazon`, `:local` are just labels). Mirror services are not unwrapped (non-goal); they hit the unsupported-service error naming the mirror explicitly. Attachments and `Attached::One` unwrap to their blob first (`#blob`); an unattached `Attached::One` (nil blob) raises `Audioproxy::UnattachedError` naming the attachment, distinct from the unsupported-service error.
+
+The match is on the class *names* in `service.class.ancestors`, not on the constants themselves. Naming `ActiveStorage::Service::S3Service` in the resolver would load that file, and it requires `aws-sdk-s3` — a gem an app on Disk storage has no reason to bundle, and one this gem must not force. (`defined?` is no escape: it answers for an autoload-registered constant without triggering the load, so the guard would pass and the reference behind it would still raise `LoadError`.) Walking ancestor names rather than matching one name also means an app's own subclass of a supported service resolves the way its parent does, at no extra cost. This is a spelling of D1, not a departure from it: the discriminator is still the service class and never the configured label.
 
 ### D2: S3 → `s3://{bucket}/{key}`
 

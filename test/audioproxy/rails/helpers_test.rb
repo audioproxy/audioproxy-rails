@@ -153,4 +153,61 @@ class Audioproxy::Rails::HelpersTest < ActionView::TestCase
     assert_equal %(<audio src="#{Audioproxy.url_for(SOURCE)}"></audio>),
       view.audioproxy_audio_tag(SOURCE)
   end
+
+  # --- ActiveStorage end to end --------------------------------------------
+  #
+  # Everything else in this file hands the helpers a source string. These start
+  # from a real attachment on the dummy app's Disk service and go all the way
+  # to a signed URL, which is the only place the whole chain — railtie
+  # registration, unwrapping, disk layout, encoding, signing — is exercised as
+  # one thing.
+
+  test "the railtie registered the blob resolver with the core" do
+    assert_equal Audioproxy::Rails::BlobResolver, Audioproxy.source_resolver
+  end
+
+  test "an attachment reaches audioproxy_url as its resolved source" do
+    recording = attached_recording
+
+    assert_equal Audioproxy.url_for("local://#{disk_path_for(recording)}"),
+      view.audioproxy_url(recording.audio)
+  end
+
+  test "a blob through audioproxy_audio_tag renders a signed src" do
+    recording = attached_recording
+
+    tag = view.audioproxy_audio_tag(recording.audio, format: "opus", html: { controls: true })
+    src = tag[/src="([^"]+)"/, 1]
+    signature = src.delete_prefix("#{Audioproxy.config.endpoint}/").split("/").first
+
+    assert_includes tag, %(controls="controls")
+    assert_includes src, "/f:opus/enc/"
+    refute_equal Audioproxy::UrlBuilder::INSECURE_SEGMENT, signature
+    assert_match(/\A[A-Za-z0-9_-]{43}\z/, signature)
+    assert_equal "local://#{disk_path_for(recording)}",
+      Base64.urlsafe_decode64(src.split("/enc/").last)
+  end
+
+  test "an unattached attachment raises out of the helper" do
+    assert_raises(Audioproxy::UnattachedError) { view.audioproxy_url(Recording.new.audio) }
+  end
+
+  private
+    def attached_recording
+      recording = Recording.create!(title: "Take 1")
+      recording.audio.attach(
+        io: StringIO.new("RIFF....WAVE"),
+        filename: "take.wav",
+        content_type: "audio/wav"
+      )
+      recording
+    end
+
+    # Built from the key the way the proxy would have to find it, not from the
+    # resolver, so this asserts against something other than itself.
+    def disk_path_for(recording)
+      key = recording.audio.key
+
+      "#{key[0..1]}/#{key[2..3]}/#{key}"
+    end
 end
