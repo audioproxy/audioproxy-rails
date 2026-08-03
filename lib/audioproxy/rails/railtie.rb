@@ -75,10 +75,14 @@ module Audioproxy
           # an older shape can hand over strings; normalizing in one place is
           # what keeps the rest of this indifferent.
           #
-          # Unknown keys under `audioproxy:` are left alone rather than raising.
-          # Unlike a typo in default_options, a typo here cannot produce a
-          # valid-looking URL for the wrong variant — it produces no
-          # configuration, and the core then raises at url_for.
+          # An unrecognized key under `audioproxy:` raises, the same as in
+          # default_options. It is tempting to be permissive here on the grounds
+          # that a typo simply leaves a setting unconfigured and the core then
+          # raises at url_for — true of endpoint, key and salt, whose default is
+          # nil. It is false of unsigned, whose default is a working value:
+          # `unsinged: true` leaves unsigned at false and emits a signed URL
+          # where the insecure segment was meant. That is a valid-looking URL
+          # for the wrong variant, which is the one thing this gem may not do.
           def normalize_credentials(credentials)
             return {} if credentials.nil?
 
@@ -107,7 +111,15 @@ module Audioproxy
                 "#{spellings.map(&:inspect).join(" and ")}; each setting takes one spelling"
             end
 
-            hash.symbolize_keys
+            normalized = hash.symbolize_keys
+
+            unless (unknown = normalized.keys - ENV_VARIABLES.keys).empty?
+              raise ArgumentError,
+                "unknown Audioproxy credential #{unknown.first.inspect} under audioproxy:; " \
+                "known keys are #{ENV_VARIABLES.keys.join(", ")}"
+            end
+
+            normalized
           end
 
           def coerce_boolean(value, attribute, source)

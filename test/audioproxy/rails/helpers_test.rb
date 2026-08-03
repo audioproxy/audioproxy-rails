@@ -76,6 +76,73 @@ class Audioproxy::Rails::HelpersTest < ActionView::TestCase
     assert_includes tag, %(src="#{Audioproxy.url_for(SOURCE)}")
   end
 
+  # --- default_options through the helpers ---------------------------------
+  #
+  # The core covers the merge itself; what is unexercised is whether the
+  # helpers hand options over intact enough for it to happen at all. These
+  # mutate the process-global config, so each one puts it back.
+
+  def with_default_options(defaults)
+    previous = Audioproxy.config.default_options
+    Audioproxy.config.default_options = defaults
+    yield
+  ensure
+    Audioproxy.config.default_options = previous
+  end
+
+  test "configured defaults reach a helper called with no options" do
+    with_default_options(format: "opus", bitrate: 96) do
+      assert_includes view.audioproxy_url(SOURCE), "/f:opus/br:96/"
+      assert_includes view.audioproxy_audio_tag(SOURCE), "/f:opus/br:96/"
+    end
+  end
+
+  test "a per-call option merges over a defaulted one rather than repeating it" do
+    with_default_options(format: "opus", bitrate: 96) do
+      url = view.audioproxy_url(SOURCE, bitrate: 128)
+
+      assert_includes url, "/f:opus/br:128/"
+      refute_includes url, "br:96"
+    end
+  end
+
+  # The alias layer collapses a spelled-out default and a canonical per-call key
+  # into one segment. Through the helper it has to survive two keyword splats.
+  test "an aliased default and a canonical per-call key stay one segment" do
+    with_default_options(bitrate: 96) do
+      url = view.audioproxy_url(SOURCE, br: 128)
+
+      assert_includes url, "/br:128/"
+      refute_includes url, "br:96"
+    end
+  end
+
+  test "a per-call raw: replaces the defaults entirely" do
+    with_default_options(format: "opus", bitrate: 96) do
+      url = view.audioproxy_url(SOURCE, raw: "f:flac")
+
+      assert_includes url, "/f:flac/"
+      refute_includes url, "opus"
+    end
+  end
+
+  test "defaults land in the src while html: still lands on the tag" do
+    with_default_options(format: "opus") do
+      tag = view.audioproxy_audio_tag(SOURCE, html: { controls: true })
+
+      assert_includes tag, "/f:opus/"
+      assert_includes tag, %(controls="controls")
+      refute_includes tag, "format="
+    end
+  end
+
+  test "html: attributes are never treated as options against the defaults" do
+    with_default_options(format: "opus") do
+      assert_equal view.audioproxy_url(SOURCE),
+        view.audioproxy_audio_tag(SOURCE, html: { class: "player" })[/src="([^"]+)"/, 1]
+    end
+  end
+
   test "html: must be a Hash" do
     error = assert_raises(ArgumentError) { view.audioproxy_audio_tag(SOURCE, html: "controls") }
 

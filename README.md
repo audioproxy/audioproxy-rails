@@ -199,7 +199,9 @@ Every setting also reads from an environment variable, and the names are the pro
 
 The names match on purpose: in development you can point a docker-compose app service and the proxy service at one shared env file and have both read the same values. An empty variable (`AP_KEY=` with nothing after it) counts as unset.
 
-`AP_ALLOW_INSECURE` accepts `1`, `t`, `true`, `0`, `f`, `false`, case-insensitively, and raises on anything else. That is Go's `strconv.ParseBool`, which is what the proxy parses it with, and it is stricter than Rails' usual boolean cast for a reason: a cast that reads every unrecognized string as true would turn `AP_ALLOW_INSECURE=flase` into a production app emitting unsigned URLs.
+`AP_ALLOW_INSECURE` accepts `1`, `t`, `true`, `0`, `f`, `false`, case-insensitively, and raises on anything else. Those are the literals Go's `strconv.ParseBool` accepts, which is what the proxy parses the variable with — the case-insensitivity is the one liberty taken, so `True` and `TrUe` both work here where Go takes only the former. It is stricter than Rails' usual boolean cast for a reason: a cast that reads every unrecognized string as true would turn `AP_ALLOW_INSECURE=flase` into a production app emitting unsigned URLs.
+
+In credentials the same setting takes a YAML boolean, or an unquoted `1`/`0`, which YAML hands over as an Integer. Anything under `audioproxy:` that is not `endpoint`, `key`, `salt` or `unsigned` raises, and so does one setting written twice under different spellings. That strictness earns its keep on `unsigned` in particular: the other three default to nothing and would fail loudly at `url_for`, but `unsinged: true` would leave `unsigned` at `false` and quietly emit a signed URL where you meant the `insecure` segment.
 
 Two caveats on that flag. It sets only *this* client's behaviour, telling the gem to emit the literal `insecure` signature segment instead of an HMAC; the proxy decides independently whether it will accept one. And it belongs in development only — never set it in production, where it hands anyone who can read a URL the ability to request any variant of any source.
 

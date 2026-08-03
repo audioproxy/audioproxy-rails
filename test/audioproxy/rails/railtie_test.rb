@@ -89,6 +89,35 @@ class Audioproxy::Rails::RailtieTest < ActiveSupport::TestCase
     end
   end
 
+  # The permissive reading — a typo just leaves a setting unconfigured, and the
+  # core raises at url_for — holds for the three whose default is nil, and
+  # fails for the one whose default is a working value.
+  test "an unknown credential key raises" do
+    error = assert_raises(ArgumentError) { apply(credentials: { endpint: ENDPOINT }) }
+
+    assert_match(/unknown Audioproxy credential :endpint/, error.message)
+    assert_match(/endpoint, key, salt, unsigned/, error.message)
+  end
+
+  test "a typo in unsigned raises rather than silently emitting a signed URL" do
+    error = assert_raises(ArgumentError) do
+      apply(credentials: {
+        endpoint: ENDPOINT,
+        key: SignatureVectors::KEY_HEX,
+        salt: SignatureVectors::SALT_HEX,
+        unsinged: true
+      })
+    end
+
+    assert_match(/unknown Audioproxy credential :unsinged/, error.message)
+  end
+
+  test "an unknown credential key raises whichever spelling it is written in" do
+    error = assert_raises(ArgumentError) { apply(credentials: { "unsinged" => true }) }
+
+    assert_match(/unknown Audioproxy credential :unsinged/, error.message)
+  end
+
   test "credential keys that are neither String nor Symbol raise" do
     error = assert_raises(ArgumentError) { apply(credentials: { 1 => ENDPOINT }) }
 
