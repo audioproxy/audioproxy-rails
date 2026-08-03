@@ -30,8 +30,12 @@ Options whose grammar takes colon-separated parts (`t`, `fade`, `norm`) SHALL ac
 - **WHEN** `norm: [:ebu, -16, -1.5, 11]` is passed
 - **THEN** the segment is `norm:ebu:-16:-1.5:11`
 
+#### Scenario: Array on a single-part key raises
+- **WHEN** `f: [:opus, :mp3]` is passed
+- **THEN** an `ArgumentError` is raised naming the keys that take colon-separated parts
+
 ### Requirement: Canonical number formatting
-Numeric option values SHALL be rendered in the proxy's canonical minimal form: integers as integers; whole floats without a fraction (`30.0` → `30`); fractional floats with at most 3 decimal places and no trailing zeros (`12.5`, never `12.50`); negative zero as `0`; never exponent notation. A numeric value that cannot be represented exactly within 3 decimal places SHALL raise an `ArgumentError` rather than being rounded.
+Numeric option values SHALL be rendered in the proxy's canonical minimal form: integers as integers; whole floats without a fraction (`30.0` → `30`); fractional floats with at most 3 decimal places and no trailing zeros (`12.5`, never `12.50`); negative zero as `0`; never exponent notation, and never a dangling decimal point. Rendering SHALL reproduce the value's own decimal spelling exactly, including for magnitudes where a double's spacing exceeds 0.001 and for `BigDecimal`s carrying more digits than a double holds. A numeric value that cannot be represented exactly within 3 decimal places SHALL raise an `ArgumentError` rather than being rounded, and a `Numeric` that is not a real number SHALL raise an `ArgumentError` rather than an implementation-level error.
 
 #### Scenario: Whole float loses its fraction
 - **WHEN** `t: 30.0` is passed
@@ -63,6 +67,18 @@ String option values SHALL be used as given without numeric formatting, and opaq
 #### Scenario: Cache buster
 - **WHEN** `cb: "v2"` is passed
 - **THEN** the segment is `cb:v2`
+
+#### Scenario: A value carrying a separator raises
+- **WHEN** a value contains `/`, `:`, `?`, `#`, whitespace or a control character (`dl: "album/track.mp3"`, `dl: "track#2"`, `dl: "two words.mp3"`)
+- **THEN** an `ArgumentError` naming the offending character is raised, rather than a segment that shifts or truncates the signed path
+
+#### Scenario: An empty or nil value raises
+- **WHEN** `f: ""` or `br: nil` is passed
+- **THEN** an `ArgumentError` is raised rather than an empty or dropped segment
+
+#### Scenario: An empty part inside a multi-part value raises
+- **WHEN** `t: ["", 30]` is passed
+- **THEN** an `ArgumentError` is raised, rather than `t::30` rendering as though the empty part were the whole value
 
 ### Requirement: No client-side domain validation
 The gem SHALL NOT validate option value domains or cross-key rules (bitrate ranges, `br` vs `q` exclusivity, fade-fits-trim, …); the proxy is the validator. Rendering-level errors (unknown key, unrenderable number, `raw:` mixed with typed keys) are the only client-side rejections.

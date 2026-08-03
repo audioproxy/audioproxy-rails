@@ -1,5 +1,6 @@
 require "uri"
 require "active_support/core_ext/hash/keys"
+require "audioproxy/options"
 
 module Audioproxy
   # Raised when a URL is requested but the configuration cannot produce one the
@@ -13,11 +14,10 @@ module Audioproxy
   class Config
     HEX = /\A(?:\h\h)+\z/
 
-    # Option keys this slice understands. The typed short-key layer
-    # (add-options-rendering) widens this; until then an unrecognized key is a
-    # typo, and a typo that is silently dropped emits a valid URL for the wrong
-    # variant.
-    OPTION_KEYS = [ :raw ].freeze
+    # Option keys defaults may carry: the proxy's typed short keys, plus the
+    # pre-rendered +raw:+ escape hatch. An unrecognized key is a typo, and a
+    # typo that is silently dropped emits a valid URL for the wrong variant.
+    OPTION_KEYS = ([ :raw ] + Options::KEYS).freeze
 
     attr_reader :endpoint, :key, :salt, :default_options
     attr_accessor :unsigned
@@ -114,8 +114,17 @@ module Audioproxy
         end
 
         normalized = value.symbolize_keys
-        # Raises ArgumentError: "Unknown key: :format. Valid keys are: :raw"
+        # Raises ArgumentError: "Unknown key: :format. Valid keys are: :raw, :bd, …"
         normalized.assert_valid_keys(*OPTION_KEYS)
+
+        # Two sources of truth for one segment string is ambiguity, not
+        # composition — the same rule as per call (D4), applied at boot.
+        if normalized.key?(:raw) && normalized.keys.size > 1
+          raise ArgumentError,
+            "Audioproxy config default_options takes either raw: or typed option keys, not both " \
+            "(got raw: and #{(normalized.keys - [ :raw ]).join(", ")})"
+        end
+
         normalized
       end
   end

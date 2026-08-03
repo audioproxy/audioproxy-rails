@@ -1,5 +1,6 @@
 require "audioproxy/version"
 require "audioproxy/signer"
+require "audioproxy/options"
 require "audioproxy/config"
 require "audioproxy/url_builder"
 

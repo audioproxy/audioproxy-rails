@@ -38,11 +38,13 @@ Each typed key renders its value into a segment; no domain checks beyond what re
 - Rationals/BigDecimals accepted and rendered through the same path; strings passed through verbatim (caller opted out of formatting).
 - Negative zero collapses to `"0"` (the proxy does the same at its decimal funnel).
 
-Implementation note: render via an explicit decimal path (e.g. `format("%.3f")` then trim), not `Float#to_s` — `Float#to_s` produces `1.0e-05`-style exponent forms the grammar rejects.
+Implementation note: render via an explicit decimal path, not `Float#to_s` — `Float#to_s` produces `1.0e-05`-style exponent forms the grammar rejects. `format("%.3f")` is not that path either: it re-reads the underlying binary value, so it renders `12345678901234.56` as `12345678901234.561`, and it truncates a `BigDecimal` to a double on the way past. What works is exact integer arithmetic on the value's *own* decimal spelling: `Rational(float.to_s)` for a Float (its shortest round-tripping decimal, which is what the caller wrote), `to_r` for a Rational or BigDecimal (exact), scaled by 1000 and rendered with `divmod`. A scaled value that is not a whole number is the excess-precision error. `Complex` is `Numeric` but has no `#round` and lies about a zero imaginary part, so it is rejected by name rather than escaping as a `NoMethodError`.
 
 ### D3: Multi-part options are arrays, scalars auto-wrap
 
 `t: [12.5, 30]` → `t:12.5:30`; `t: 12.5` → `t:12.5` (single-element case is the scalar). `norm: :ebu` → `norm:ebu`; `norm: [:ebu, -16]` → `norm:ebu:-16`. Symbols render with `to_s` (`f: :opus` → `f:opus`). Each array element goes through the number formatter when numeric.
+
+An Array on a single-part key (`f: [:opus, :mp3]`) raises rather than rendering `Array#to_s`. Each rendered *part* is then checked on its own: an empty part raises (`t: ["", 30]` would render `t::30`, which reads as a whole value rather than a missing one), and so does a part carrying `/`, `:`, `?`, `#`, whitespace or a control character. The builder supplies the separators, so a value containing one invents a segment or a part; `?` and `#` are worse than wrong, because a browser ends the path there and the proxy then receives less than what was signed, which 403s at request time. This costs `dl:` filenames with spaces, which must be pre-encoded by the caller — deliberate, since inventing a percent-encoding here would change the signed bytes and the proxy's `dl:` grammar has not been confirmed. All of it is the D1 exception class — values the renderer cannot represent faithfully — not domain validation.
 
 ### D4: Caller order is preserved; `raw:` and typed keys are mutually exclusive
 
