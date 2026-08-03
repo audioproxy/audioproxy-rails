@@ -44,6 +44,8 @@ Implementation note: render via an explicit decimal path (e.g. `format("%.3f")` 
 
 `t: [12.5, 30]` → `t:12.5:30`; `t: 12.5` → `t:12.5` (single-element case is the scalar). `norm: :ebu` → `norm:ebu`; `norm: [:ebu, -16]` → `norm:ebu:-16`. Symbols render with `to_s` (`f: :opus` → `f:opus`). Each array element goes through the number formatter when numeric.
 
+An Array on a single-part key (`f: [:opus, :mp3]`) raises rather than rendering `Array#to_s`, and a rendered value that is empty or carries a `/` raises rather than shifting the whole path by a segment. Both are the D1 exception class — values the renderer cannot represent faithfully — not domain validation.
+
 ### D4: Caller order is preserved; `raw:` and typed keys are mutually exclusive
 
 Segments render in the order the caller wrote the keywords (Ruby preserves keyword-argument order). No client-side sorting: sorting is the proxy's normalization concern, and a stable-but-different client order would just create a third spelling. `raw:` plus any typed key raises `ArgumentError` — two sources of truth for one segment string is ambiguity, not composition. `default_options` from config merge *under* per-call typed keys (per-call wins key-by-key); `raw:` in a call replaces defaults entirely.

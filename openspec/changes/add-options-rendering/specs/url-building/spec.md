@@ -18,3 +18,11 @@
 #### Scenario: Typed keys merge over defaults
 - **WHEN** `default_options` is `{ f: :opus, br: 96 }` and `url_for(source, br: 128)` is called
 - **THEN** the options segment contains `f:opus` and `br:128`
+
+#### Scenario: Per-call typed keys replace a raw default
+- **WHEN** `default_options` is `{ raw: "f:opus/br:96" }` and `url_for(source, f: :mp3)` is called
+- **THEN** the options segment is `f:mp3`
+
+#### Scenario: Defaults mixing raw with typed keys are rejected at configuration time
+- **WHEN** `default_options` is assigned `{ raw: "f:opus", br: 96 }`
+- **THEN** an `ArgumentError` is raised at assignment

@@ -24,11 +24,14 @@ module Audioproxy
       @config = config
     end
 
-    def url_for(source, raw: nil, endpoint: nil, unsigned: nil)
+    # Typed option keys (+f:+, +br:+, +t:+ …) arrive as keyword arguments and
+    # render in the order they were written. A keyword that is neither a builder
+    # option nor a proxy option key raises rather than being ignored.
+    def url_for(source, raw: nil, endpoint: nil, unsigned: nil, **typed)
       base = endpoint.nil? ? config.endpoint : Config.new.tap { |c| c.endpoint = endpoint }.endpoint
       raise ConfigurationError, "Audioproxy has no endpoint configured" if base.nil?
 
-      rest_of_path = "/#{options_segment(raw)}/#{source_segment(source)}"
+      rest_of_path = "/#{options_segment(raw, typed)}/#{source_segment(source)}"
       insecure = unsigned.nil? ? config.unsigned : unsigned
 
       "#{base}/#{insecure ? INSECURE_SEGMENT : sign(rest_of_path)}#{rest_of_path}"
@@ -46,10 +49,30 @@ module Audioproxy
     end
 
     private
-      def options_segment(raw)
-        raw = config.default_options[:raw] if raw.nil?
-        return FALLBACK_OPTIONS if raw.nil?
+      # Precedence, per D4: an explicit per-call source of options replaces the
+      # configured defaults entirely; typed per-call keys merge over typed
+      # defaults key-by-key, keeping the defaults' position and appending the
+      # rest in caller order.
+      def options_segment(raw, typed)
+        unless raw.nil? || typed.empty?
+          raise ArgumentError,
+            "Audioproxy url_for takes either raw: or typed option keys, not both " \
+            "(got raw: and #{typed.keys.join(", ")})"
+        end
 
+        return raw_segment(raw) unless raw.nil?
+
+        defaults = config.default_options
+        typed_defaults = defaults.except(:raw)
+
+        return Options.render(typed_defaults.merge(typed)) unless typed.empty?
+        return raw_segment(defaults[:raw]) unless defaults[:raw].nil?
+        return Options.render(typed_defaults) unless typed_defaults.empty?
+
+        FALLBACK_OPTIONS
+      end
+
+      def raw_segment(raw)
         segment = String.try_convert(raw)
         if segment.nil?
           raise ArgumentError, "raw options must be a String, got #{raw.class}"

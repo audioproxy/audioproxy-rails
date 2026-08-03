@@ -183,6 +183,115 @@ class Audioproxy::UrlBuilderTest < ActiveSupport::TestCase
     assert_match(/FalseClass/, error.message)
   end
 
+  # --- typed options -------------------------------------------------------
+
+  test "typed keys render into the options segment" do
+    url = @builder.url_for("local://a.wav", f: :opus, br: 96)
+
+    assert_includes url, "/f:opus/br:96/enc/"
+  end
+
+  test "a typed URL is signed over the rendered options segment" do
+    url = @builder.url_for("local://previews/track.wav", f: :opus, t: [ 12.5, 30 ])
+
+    rest = "/f:opus/t:12.5:30/enc/#{base64url("local://previews/track.wav")}"
+
+    assert_equal "#{ENDPOINT}/#{reference_signature(rest)}#{rest}", url
+  end
+
+  test "typed and raw options producing the same segment sign identically" do
+    assert_equal @builder.url_for("local://a.wav", raw: "f:opus/br:96"),
+      @builder.url_for("local://a.wav", f: :opus, br: 96)
+  end
+
+  test "number formatting reaches the URL, so one variant keeps one cache key" do
+    assert_equal @builder.url_for("local://a.wav", t: [ 12.5, 30 ]),
+      @builder.url_for("local://a.wav", t: [ 12.500, 30.0 ])
+  end
+
+  test "an unrenderable number raises at build time rather than 422ing later" do
+    assert_raises(ArgumentError) { @builder.url_for("local://a.wav", t: 0.1234) }
+  end
+
+  test "an unknown option keyword raises listing the known keys" do
+    error = assert_raises(ArgumentError) { @builder.url_for("local://a.wav", bt: 96) }
+
+    assert_match(/bt/, error.message)
+    assert_match(/br/, error.message)
+  end
+
+  test "raw mixed with typed keys raises" do
+    error = assert_raises(ArgumentError) { @builder.url_for("local://a.wav", raw: "f:opus", br: 96) }
+
+    assert_match(/raw/, error.message)
+    assert_match(/br/, error.message)
+  end
+
+  test "typed keys merge over typed defaults, key by key" do
+    @config.default_options = { f: :opus, br: 96 }
+
+    assert_includes @builder.url_for("local://a.wav", br: 128), "/f:opus/br:128/enc/"
+  end
+
+  test "typed defaults apply on their own" do
+    @config.default_options = { f: :opus, br: 96 }
+
+    assert_includes @builder.url_for("local://a.wav"), "/f:opus/br:96/enc/"
+  end
+
+  test "typed keys not in the defaults are appended in caller order" do
+    @config.default_options = { f: :opus }
+
+    assert_includes @builder.url_for("local://a.wav", br: 96, t: 30), "/f:opus/br:96/t:30/enc/"
+  end
+
+  test "per-call typed keys replace a configured raw default" do
+    @config.default_options = { raw: "f:opus/br:96" }
+
+    url = @builder.url_for("local://a.wav", f: :mp3)
+
+    assert_includes url, "/f:mp3/enc/"
+    refute_includes url, "opus"
+  end
+
+  test "per-call raw replaces typed defaults entirely" do
+    @config.default_options = { f: :opus, br: 96 }
+
+    url = @builder.url_for("local://a.wav", raw: "f:mp3")
+
+    assert_includes url, "/f:mp3/enc/"
+    refute_includes url, "br:96"
+  end
+
+  test "string-keyed typed defaults are honoured" do
+    @config.default_options = { "f" => "opus" }
+
+    assert_includes @builder.url_for("local://a.wav"), "/f:opus/enc/"
+  end
+
+  test "defaults mixing raw with typed keys are rejected at configuration time" do
+    error = assert_raises(ArgumentError) { @config.default_options = { raw: "f:opus", br: 96 } }
+
+    assert_match(/raw/, error.message)
+  end
+
+  test "value domains are the proxy's business, not the builder's" do
+    assert_includes @builder.url_for("local://a.wav", br: 999999), "/br:999999/enc/"
+  end
+
+  test "typed options reach the URL through the module entry point" do
+    original = Audioproxy.config
+
+    begin
+      Audioproxy.config = @config
+
+      assert_equal @builder.url_for("local://a.wav", f: :opus, br: 96),
+        Audioproxy.url_for("local://a.wav", f: :opus, br: 96)
+    ensure
+      Audioproxy.config = original
+    end
+  end
+
   # --- unsigned ------------------------------------------------------------
 
   test "per-call unsigned emits the literal insecure segment" do
