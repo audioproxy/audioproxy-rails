@@ -25,8 +25,10 @@ module Audioproxy
     end
 
     # Typed option keys (+f:+, +br:+, +t:+ …) arrive as keyword arguments and
-    # render in the order they were written. A keyword that is neither a builder
-    # option nor a proxy option key raises rather than being ignored.
+    # render in the order they were written. Each is also accepted as its
+    # spelled-out alias (+format:+, +bitrate:+, +trim:+ …), resolved to the
+    # canonical key before anything is rendered. A keyword that is neither a
+    # builder option nor a proxy option key raises rather than being ignored.
     def url_for(source, raw: nil, endpoint: nil, unsigned: nil, **typed)
       base = endpoint.nil? ? config.endpoint : Config.new.tap { |c| c.endpoint = endpoint }.endpoint
       raise ConfigurationError, "Audioproxy has no endpoint configured" if base.nil?
@@ -61,6 +63,12 @@ module Audioproxy
         end
 
         return raw_segment(raw) unless raw.nil?
+
+        # Onto the canonical keys before anything else, so that a default
+        # written as bitrate: and a per-call br: are one key the merge
+        # overrides rather than two segments that both render (D3). Defaults
+        # were resolved at assignment.
+        typed = Options.resolve(typed)
 
         defaults = config.default_options
         typed_defaults = defaults.except(:raw)

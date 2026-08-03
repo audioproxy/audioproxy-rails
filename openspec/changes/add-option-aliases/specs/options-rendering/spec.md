@@ -4,7 +4,7 @@
 `url_for` SHALL accept a spelled-out alias for each of the proxy's canonical option keys, resolved
 to the canonical key before rendering: `format`→`f`, `bitrate`→`br`, `quality`→`q`,
 `sample_rate`→`sr`, `channels`→`ch`, `bit_depth`→`bd`, `trim`→`t`, `fade`→`fade`, `gain`→`gain`,
-`normalize`→`norm`, `points`→`pts`, `peaks_format`→`pk_fmt`, `download`→`dl`,
+`normalize`→`norm`, `peak_count`→`pts`, `peak_format`→`pk_fmt`, `download`→`dl`,
 `cache_buster`→`cb`. An aliased key SHALL render byte-identically to its canonical spelling.
 
 #### Scenario: Alias renders as the canonical key
@@ -47,6 +47,24 @@ Giving both the canonical key and its alias for the same option in a single call
 #### Scenario: Both spellings in configured defaults
 - **WHEN** `default_options` is assigned `{ bitrate: 96, br: 128 }`
 - **THEN** an `ArgumentError` is raised at assignment
+
+### Requirement: Aliases count as typed keys against `raw:`
+An alias SHALL be treated as a typed option key wherever typed keys and `raw:` are mutually
+exclusive, and the resulting error SHALL name the alias as the caller spelled it rather than the
+canonical key. Across call sites the existing precedence is unchanged: an explicit per-call source
+of options replaces the configured defaults entirely, in either vocabulary.
+
+#### Scenario: raw mixed with an aliased key
+- **WHEN** `url_for(source, raw: "f:opus", bitrate: 96)` is called
+- **THEN** an `ArgumentError` naming `raw` and `bitrate` is raised
+
+#### Scenario: Defaults mixing raw with an aliased key
+- **WHEN** `default_options` is assigned `{ raw: "f:opus", bitrate: 96 }`
+- **THEN** an `ArgumentError` is raised at assignment
+
+#### Scenario: A per-call aliased key replaces a configured raw default
+- **WHEN** `default_options` is `{ raw: "f:opus/br:96" }` and `url_for(source, bitrate: 128)` is called
+- **THEN** the options segment is `br:128` and carries nothing from the raw default
 
 ### Requirement: Durations for the time-valued keys
 The keys whose values are seconds (`t`, `fade`) SHALL accept an `ActiveSupport::Duration`, rendered

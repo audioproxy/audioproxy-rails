@@ -275,6 +275,148 @@ class Audioproxy::UrlBuilderTest < ActiveSupport::TestCase
     assert_match(/raw/, error.message)
   end
 
+  # --- spelled-out aliases -------------------------------------------------
+
+  test "aliased per-call keys render as their canonical keys" do
+    assert_includes @builder.url_for("local://a.wav", format: :opus, bitrate: 96), "/f:opus/br:96/enc/"
+  end
+
+  test "an aliased default is overridden by a canonical per-call key, once" do
+    @config.default_options = { bitrate: 96 }
+
+    url = @builder.url_for("local://a.wav", br: 128)
+
+    assert_includes url, "/br:128/enc/"
+    refute_includes url, "br:96"
+  end
+
+  test "a canonical default is overridden by an aliased per-call key, in place" do
+    @config.default_options = { f: :opus, br: 96 }
+
+    assert_includes @builder.url_for("local://a.wav", bitrate: 128), "/f:opus/br:128/enc/"
+  end
+
+  test "an aliased default applies on its own" do
+    @config.default_options = { format: :opus, peak_format: :dat }
+
+    assert_includes @builder.url_for("local://a.wav"), "/f:opus/pk_fmt:dat/enc/"
+  end
+
+  test "both spellings of one option in a call raise, naming both" do
+    error = assert_raises(ArgumentError) { @builder.url_for("local://a.wav", bitrate: 96, br: 128) }
+
+    assert_match(/bitrate/, error.message)
+    assert_match(/br/, error.message)
+  end
+
+  test "both spellings of one option in the defaults are rejected at assignment" do
+    error = assert_raises(ArgumentError) { @config.default_options = { bitrate: 96, br: 128 } }
+
+    assert_match(/bitrate/, error.message)
+    assert_match(/br/, error.message)
+  end
+
+  # The raw-vs-typed check runs before alias resolution, so it sees the
+  # spelling the caller wrote. Both halves are worth pinning: that an alias
+  # counts as a typed key at all, and that the message echoes it back rather
+  # than naming a canonical key the caller never typed.
+  test "raw mixed with aliased keys raises, naming the aliases as written" do
+    error = assert_raises(ArgumentError) do
+      @builder.url_for("local://a.wav", raw: "f:opus", bitrate: 96, peak_format: :dat)
+    end
+
+    assert_match(/raw/, error.message)
+    assert_match(/bitrate/, error.message)
+    assert_match(/peak_format/, error.message)
+    refute_match(/br\b/, error.message)
+  end
+
+  test "raw mixed with a self-aliasing key raises" do
+    error = assert_raises(ArgumentError) { @builder.url_for("local://a.wav", raw: "f:opus", fade: 1) }
+
+    assert_match(/raw/, error.message)
+    assert_match(/fade/, error.message)
+  end
+
+  test "defaults mixing raw with an aliased key are rejected at configuration time" do
+    error = assert_raises(ArgumentError) { @config.default_options = { raw: "f:opus", bitrate: 96 } }
+
+    assert_match(/raw/, error.message)
+    assert_match(/bitrate/, error.message)
+  end
+
+  # D4: an explicit per-call source of options replaces the configured defaults
+  # entirely, whichever vocabulary each side is written in.
+  test "a per-call aliased key replaces a configured raw default" do
+    @config.default_options = { raw: "f:opus/br:96" }
+
+    url = @builder.url_for("local://a.wav", bitrate: 128)
+
+    assert_includes url, "/br:128/enc/"
+    refute_includes url, "opus"
+  end
+
+  test "a per-call raw replaces aliased defaults entirely" do
+    @config.default_options = { format: :opus, bitrate: 96 }
+
+    url = @builder.url_for("local://a.wav", raw: "f:mp3")
+
+    assert_includes url, "/f:mp3/enc/"
+    refute_includes url, "br:96"
+  end
+
+  test "a near-miss alias raises rather than being dropped" do
+    error = assert_raises(ArgumentError) { @builder.url_for("local://a.wav", bit_rate: 96) }
+
+    assert_match(/bit_rate/, error.message)
+  end
+
+  # --- byte stability ------------------------------------------------------
+
+  # This slice must not change a single rendered byte. If any of these pairs
+  # ever diverge, the alias layer has grown a second rendering path (D1).
+  BYTE_STABILITY_PAIRS = [
+    [ { bitrate: 96 }, { br: 96 } ],
+    [ { format: :opus, trim: [ 12.5, 30 ] }, { f: :opus, t: [ 12.5, 30 ] } ],
+    [ { normalize: [ :ebu, -16, -1.5, 11 ] }, { norm: [ :ebu, -16, -1.5, 11 ] } ],
+    [ { peak_count: 800, peak_format: :dat }, { pts: 800, pk_fmt: :dat } ],
+    [ { sample_rate: 44100, channels: 1, bit_depth: 24 }, { sr: 44100, ch: 1, bd: 24 } ],
+    [ { quality: 5, gain: -2.5, fade: [ 1, 2 ] }, { q: 5, gain: -2.5, fade: [ 1, 2 ] } ],
+    [ { download: "piece.mp3", cache_buster: "v2" }, { dl: "piece.mp3", cb: "v2" } ]
+  ].freeze
+
+  test "an aliased call and its canonical equivalent produce identical URLs" do
+    BYTE_STABILITY_PAIRS.each do |aliased, canonical|
+      assert_equal @builder.url_for("local://a.wav", **canonical),
+        @builder.url_for("local://a.wav", **aliased),
+        "expected #{aliased.keys.join(", ")} to sign identically to #{canonical.keys.join(", ")}"
+    end
+  end
+
+  # The matrix above is the only assertion comparing whole signed URLs, so a key
+  # missing from it is a key whose alias is not guarded at all. br: was missing
+  # until an outside reviewer noticed; this makes the next omission fail here.
+  test "the byte-stability matrix covers every alias" do
+    covered = BYTE_STABILITY_PAIRS.flat_map { |aliased, _| aliased.keys }.uniq
+
+    assert_equal [], Audioproxy::Options::ALIASES.values - covered,
+      "every alias must appear in BYTE_STABILITY_PAIRS"
+  end
+
+  test "a duration produces the same URL as the number of seconds it stands for" do
+    {
+      { t: 30.seconds } => { t: 30 },
+      { t: 1.minute } => { t: 60 },
+      { fade: [ 1.5.seconds, 2.seconds ] } => { fade: [ 1.5, 2 ] },
+      { t: [ 12.5, 1.minute ] } => { t: [ 12.5, 60 ] },
+      { trim: 0.3.seconds } => { t: 0.3 }
+    }.each do |duration, number|
+      assert_equal @builder.url_for("local://a.wav", **number),
+        @builder.url_for("local://a.wav", **duration),
+        "expected #{duration.inspect} to sign identically to #{number.inspect}"
+    end
+  end
+
   test "value domains are the proxy's business, not the builder's" do
     assert_includes @builder.url_for("local://a.wav", br: 999999), "/br:999999/enc/"
   end

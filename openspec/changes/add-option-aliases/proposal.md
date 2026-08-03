@@ -5,7 +5,7 @@
 and it stays first-class. It is also unreadable at a glance in an app that touches audio options
 twice a year, and it reads nothing like the Rails code around it.
 
-This slice adds spelled-out aliases (`format:`, `bitrate:`, `sample_rate:`, `peaks_format:`) that
+This slice adds spelled-out aliases (`format:`, `bitrate:`, `sample_rate:`, `peak_format:`) that
 resolve to the canonical short keys before anything is rendered. It was deferred out of
 `add-options-rendering` as additive sugar; this is the slice that adds it.
 
@@ -16,7 +16,7 @@ the previous slice pinned.
 ## What Changes
 
 - An alias table mapping spelled-out names to the fourteen canonical keys. `bitrate:` → `br:`,
-  `sample_rate:` → `sr:`, `peaks_format:` → `pk_fmt:`, and so on. Keys whose short name is already a
+  `sample_rate:` → `sr:`, `peak_format:` → `pk_fmt:`, and so on. Keys whose short name is already a
   word (`fade:`, `gain:`, `norm:` as `normalize:`) are covered by the same table rather than special
   cased.
 - Aliases are accepted anywhere typed keys are: per-call keyword arguments and
