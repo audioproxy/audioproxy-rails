@@ -5,10 +5,11 @@ require_relative "../fixtures/signature_vectors"
 # standalone gem, which means it may depend on stdlib and base64 only — not on
 # ActiveSupport, not on Rails, and not on any other file in this gem.
 #
-# Runs in a subprocess with Bundler's environment stripped so nothing pulls
-# those in behind our back. The rest of the gem is deliberately not loaded: if
-# signer.rb ever grows a reference to Config, UrlBuilder or a core_ext, this
-# fails with a NameError or NoMethodError rather than passing quietly.
+# The signer test runs in a subprocess with Bundler's environment stripped so
+# nothing pulls those in behind our back, and loads only signer.rb: if it ever
+# grows a reference to Config, UrlBuilder or a core_ext, this fails rather than
+# passing quietly. The two whole-gem tests below claim only that Rails is not
+# loaded, so they keep the bundle — see bundled_ruby.
 class Audioproxy::SignerIsolationTest < ActiveSupport::TestCase
   GEM_ROOT = File.expand_path("../..", __dir__)
 
@@ -37,7 +38,7 @@ class Audioproxy::SignerIsolationTest < ActiveSupport::TestCase
       print signer.sign(#{vector[:rest_of_path].dump})
     RUBY
 
-    signature, status = rails_free_ruby(script)
+    signature, status = isolated_ruby(script)
 
     assert status.success?, "expected the signer to load in isolation, got: #{signature}"
     assert_equal vector[:signature], signature,
@@ -52,7 +53,7 @@ class Audioproxy::SignerIsolationTest < ActiveSupport::TestCase
       abort "Audioproxy::VERSION undefined" unless defined?(Audioproxy::VERSION)
     RUBY
 
-    output, status = rails_free_ruby(script)
+    output, status = bundled_ruby(script)
 
     assert status.success?, "expected a Rails-free load to succeed, got: #{output}"
   end
@@ -71,7 +72,7 @@ class Audioproxy::SignerIsolationTest < ActiveSupport::TestCase
       print Audioproxy.url_for("s3://masters/2026/piece-final.wav", raw: "f:opus/br:96")
     RUBY
 
-    url, status = rails_free_ruby(script)
+    url, status = bundled_ruby(script)
 
     assert status.success?, "expected the standalone script to succeed, got: #{url}"
 
@@ -85,14 +86,28 @@ class Audioproxy::SignerIsolationTest < ActiveSupport::TestCase
   end
 
   private
-    def rails_free_ruby(script)
+    # Total isolation: Bundler's environment stripped, so only installed gems
+    # are reachable. This is what makes the signer claim meaningful — it must
+    # need nothing beyond stdlib and base64.
+    def isolated_ruby(script)
       env = Bundler.original_env.merge(
         "RUBYOPT" => nil, "RUBYLIB" => nil, "BUNDLE_GEMFILE" => nil
       )
 
-      Bundler.with_unbundled_env do
-        output = IO.popen(env, [ RbConfig.ruby, "-I#{File.join(GEM_ROOT, "lib")}", "-e", script ], err: [ :child, :out ], &:read)
-        [ output, $? ]
-      end
+      Bundler.with_unbundled_env { run_ruby(env, script) }
+    end
+
+    # A fresh process that keeps the bundle. Used where the claim is only "Rails
+    # is not loaded", which is independent of Bundler. Stripping the bundle here
+    # would test something we do not require and that is not even true in CI,
+    # where gems install into a bundle-local path an unbundled child cannot see
+    # — while every real consumer reaches ActiveSupport through its own bundle.
+    def bundled_ruby(script)
+      run_ruby(ENV.to_h, script)
+    end
+
+    def run_ruby(env, script)
+      output = IO.popen(env, [ RbConfig.ruby, "-I#{File.join(GEM_ROOT, "lib")}", "-e", script ], err: [ :child, :out ], &:read)
+      [ output, $? ]
     end
 end
