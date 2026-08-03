@@ -111,6 +111,8 @@ Audioproxy.url_for(source, fade: [1.5.seconds, 2.seconds])  # => ".../fade:1.5:2
 
 A duration renders exactly as the number of seconds it stands for, so `t: 30.seconds` and `t: 30` are one URL and one cache key. A duration anywhere else raises: `br: 3.seconds` is a bug, and rendering `br:3` from it would be a valid-looking URL for the wrong variant.
 
+The `30.seconds` spelling itself comes from ActiveSupport's time core extensions, which Rails loads for you. In a plain Ruby process that requires only `audioproxy`, `30.seconds` raises `NoMethodError` — this gem accepts a `Duration` but does not patch `Integer` to manufacture one. Either require `active_support/core_ext/numeric/time` yourself, or write `ActiveSupport::Duration.seconds(30)`.
+
 ### Numbers have one canonical spelling
 
 The proxy renders numbers minimally and hashes the normalized options string into its cache key. A URL carrying `t:12.50` still works, because the proxy re-normalizes, but it is a second CDN and browser cache entry for a byte-identical variant. So numbers here render the way the proxy renders them:

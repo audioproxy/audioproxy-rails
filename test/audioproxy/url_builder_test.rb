@@ -326,19 +326,32 @@ class Audioproxy::UrlBuilderTest < ActiveSupport::TestCase
 
   # This slice must not change a single rendered byte. If any of these pairs
   # ever diverge, the alias layer has grown a second rendering path (D1).
+  BYTE_STABILITY_PAIRS = [
+    [ { bitrate: 96 }, { br: 96 } ],
+    [ { format: :opus, trim: [ 12.5, 30 ] }, { f: :opus, t: [ 12.5, 30 ] } ],
+    [ { normalize: [ :ebu, -16, -1.5, 11 ] }, { norm: [ :ebu, -16, -1.5, 11 ] } ],
+    [ { peak_count: 800, peak_format: :dat }, { pts: 800, pk_fmt: :dat } ],
+    [ { sample_rate: 44100, channels: 1, bit_depth: 24 }, { sr: 44100, ch: 1, bd: 24 } ],
+    [ { quality: 5, gain: -2.5, fade: [ 1, 2 ] }, { q: 5, gain: -2.5, fade: [ 1, 2 ] } ],
+    [ { download: "piece.mp3", cache_buster: "v2" }, { dl: "piece.mp3", cb: "v2" } ]
+  ].freeze
+
   test "an aliased call and its canonical equivalent produce identical URLs" do
-    [
-      [ { format: :opus, trim: [ 12.5, 30 ] }, { f: :opus, t: [ 12.5, 30 ] } ],
-      [ { normalize: [ :ebu, -16, -1.5, 11 ] }, { norm: [ :ebu, -16, -1.5, 11 ] } ],
-      [ { peak_count: 800, peak_format: :dat }, { pts: 800, pk_fmt: :dat } ],
-      [ { sample_rate: 44100, channels: 1, bit_depth: 24 }, { sr: 44100, ch: 1, bd: 24 } ],
-      [ { quality: 5, gain: -2.5, fade: [ 1, 2 ] }, { q: 5, gain: -2.5, fade: [ 1, 2 ] } ],
-      [ { download: "piece.mp3", cache_buster: "v2" }, { dl: "piece.mp3", cb: "v2" } ]
-    ].each do |aliased, canonical|
+    BYTE_STABILITY_PAIRS.each do |aliased, canonical|
       assert_equal @builder.url_for("local://a.wav", **canonical),
         @builder.url_for("local://a.wav", **aliased),
         "expected #{aliased.keys.join(", ")} to sign identically to #{canonical.keys.join(", ")}"
     end
+  end
+
+  # The matrix above is the only assertion comparing whole signed URLs, so a key
+  # missing from it is a key whose alias is not guarded at all. br: was missing
+  # until an outside reviewer noticed; this makes the next omission fail here.
+  test "the byte-stability matrix covers every alias" do
+    covered = BYTE_STABILITY_PAIRS.flat_map { |aliased, _| aliased.keys }.uniq
+
+    assert_equal [], Audioproxy::Options::ALIASES.values - covered,
+      "every alias must appear in BYTE_STABILITY_PAIRS"
   end
 
   test "a duration produces the same URL as the number of seconds it stands for" do

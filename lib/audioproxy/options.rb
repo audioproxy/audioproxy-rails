@@ -89,9 +89,12 @@ module Audioproxy
           # Ruby's keyword collection keeps both spellings, and picking a winner
           # by position would make the URL depend on argument order in a way
           # nothing else here does (D4).
+          # inspect, not interpolation: the two spellings are often identical as
+          # text — "fade" and :fade, or a self-aliasing key given both ways —
+          # and "as fade and fade" tells the caller nothing.
           if (first = spellings[canonical])
             raise ArgumentError,
-              "Audioproxy option #{canonical} was given twice, as #{first} and #{key}; " \
+              "Audioproxy option #{canonical} was given twice, as #{first.inspect} and #{key.inspect}; " \
               "each option takes one spelling per call"
           end
           spellings[canonical] = key

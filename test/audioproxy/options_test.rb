@@ -54,10 +54,13 @@ class Audioproxy::OptionsTest < ActiveSupport::TestCase
     assert_equal Options::ALIASES.size, Options::ALIASES.values.uniq.size
   end
 
-  # The names the proxy's own Options struct uses, where it has one. A drift
-  # here is a second vocabulary for the proxy's concepts, which is the one way
-  # this table can do lasting damage (D2).
-  test "the aliases are the names the proxy publishes" do
+  # A change-detector, deliberately: it pins the table so an alias cannot be
+  # renamed without someone editing this literal too. It does NOT check the
+  # server — that comparison was made against ../audioproxy's Options struct
+  # once, and is recorded in D2; the server is not a dependency of this suite
+  # and cannot be read from CI. Renaming an alias means redoing that check by
+  # hand, not just updating this hash.
+  test "the alias table is pinned against silent renaming" do
     assert_equal(
       {
         f: :format, br: :bitrate, q: :quality, sr: :sample_rate, ch: :channels,
@@ -96,6 +99,16 @@ class Audioproxy::OptionsTest < ActiveSupport::TestCase
 
     assert_match(/bitrate/, error.message)
     assert_match(/br/, error.message)
+  end
+
+  # "as fade and fade" names the collision twice and tells the caller nothing.
+  # Worst on the self-aliasing keys, where the two spellings are always the
+  # same word and only the String/Symbol form differs.
+  test "the conflict message distinguishes a String key from a Symbol key" do
+    error = assert_raises(ArgumentError) { Options.render({ "fade" => 1, fade: 2 }) }
+
+    assert_match(/"fade"/, error.message)
+    assert_match(/:fade/, error.message)
   end
 
   test "a near-miss alias still raises, and the message names both vocabularies" do

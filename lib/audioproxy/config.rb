@@ -116,9 +116,28 @@ module Audioproxy
           end
         end
 
+        # Before symbolize_keys, which collapses "br" and :br into one entry and
+        # silently discards a value — the typo that OPTION_KEYS exists to catch.
+        duplicate = value.keys.group_by(&:to_sym).find { |_, spellings| spellings.size > 1 }
+        if duplicate
+          key, spellings = duplicate
+          raise ArgumentError,
+            "Audioproxy config default_options gives #{key} twice, as " \
+            "#{spellings.map(&:inspect).join(" and ")}; each option takes one spelling"
+        end
+
         normalized = value.symbolize_keys
-        # Raises ArgumentError: "Unknown key: :bit_rate. Valid keys are: :raw, :bd, …"
-        normalized.assert_valid_keys(*OPTION_KEYS)
+
+        # Not assert_valid_keys: its message lists the aliases among the valid
+        # keys without saying they are aliases, so a caller who guessed
+        # bit_rate: sees :bitrate in a flat list and cannot tell the two
+        # vocabularies apart.
+        unless (unknown = normalized.keys - OPTION_KEYS).empty?
+          raise ArgumentError,
+            "unknown Audioproxy option #{unknown.first.inspect} in default_options; known keys are " \
+            "#{([ :raw ] + Options::KEYS).join(", ")}, each also accepted as its spelled-out alias " \
+            "(#{Options::ALIASES[:br]}, #{Options::ALIASES[:sr]}, #{Options::ALIASES[:pk_fmt]}, …)"
+        end
 
         # Two sources of truth for one segment string is ambiguity, not
         # composition — the same rule as per call (D4), applied at boot.
