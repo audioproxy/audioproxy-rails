@@ -316,6 +316,55 @@ class Audioproxy::UrlBuilderTest < ActiveSupport::TestCase
     assert_match(/br/, error.message)
   end
 
+  # The raw-vs-typed check runs before alias resolution, so it sees the
+  # spelling the caller wrote. Both halves are worth pinning: that an alias
+  # counts as a typed key at all, and that the message echoes it back rather
+  # than naming a canonical key the caller never typed.
+  test "raw mixed with aliased keys raises, naming the aliases as written" do
+    error = assert_raises(ArgumentError) do
+      @builder.url_for("local://a.wav", raw: "f:opus", bitrate: 96, peak_format: :dat)
+    end
+
+    assert_match(/raw/, error.message)
+    assert_match(/bitrate/, error.message)
+    assert_match(/peak_format/, error.message)
+    refute_match(/br\b/, error.message)
+  end
+
+  test "raw mixed with a self-aliasing key raises" do
+    error = assert_raises(ArgumentError) { @builder.url_for("local://a.wav", raw: "f:opus", fade: 1) }
+
+    assert_match(/raw/, error.message)
+    assert_match(/fade/, error.message)
+  end
+
+  test "defaults mixing raw with an aliased key are rejected at configuration time" do
+    error = assert_raises(ArgumentError) { @config.default_options = { raw: "f:opus", bitrate: 96 } }
+
+    assert_match(/raw/, error.message)
+    assert_match(/bitrate/, error.message)
+  end
+
+  # D4: an explicit per-call source of options replaces the configured defaults
+  # entirely, whichever vocabulary each side is written in.
+  test "a per-call aliased key replaces a configured raw default" do
+    @config.default_options = { raw: "f:opus/br:96" }
+
+    url = @builder.url_for("local://a.wav", bitrate: 128)
+
+    assert_includes url, "/br:128/enc/"
+    refute_includes url, "opus"
+  end
+
+  test "a per-call raw replaces aliased defaults entirely" do
+    @config.default_options = { format: :opus, bitrate: 96 }
+
+    url = @builder.url_for("local://a.wav", raw: "f:mp3")
+
+    assert_includes url, "/f:mp3/enc/"
+    refute_includes url, "br:96"
+  end
+
   test "a near-miss alias raises rather than being dropped" do
     error = assert_raises(ArgumentError) { @builder.url_for("local://a.wav", bit_rate: 96) }
 
