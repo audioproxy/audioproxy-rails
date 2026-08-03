@@ -18,6 +18,46 @@ Core signing and typed options work, in both the proxy's short spellings and the
 gem "audioproxy-rails"
 ```
 
+## Quick start
+
+Tell the gem where the proxy lives:
+
+```yaml
+# bin/rails credentials:edit
+audioproxy:
+  endpoint: https://audio.example.com
+  key: 7a3f9c21…      # hex, from the proxy's AP_KEY
+  salt: 9c217a3f…     # hex, from the proxy's AP_SALT
+```
+
+Then hand a view an ActiveStorage attachment:
+
+```erb
+<%= audioproxy_audio_tag @recording.audio,
+      format: "opus", bitrate: 96,
+      html: { controls: true } %>
+```
+
+```html
+<audio controls="controls"
+       src="https://audio.example.com/zfLTfPPh…/f:opus/br:96/enc/bG9jYWw6Ly93eC95ei93…"></audio>
+```
+
+That is the whole path. `@recording.audio` is an ordinary `has_one_attached`; the gem reads the storage service the blob lives on, turns it into the source string the proxy speaks (`s3://…` or `local://…`), renders the variant you asked for, and signs the result. The view helpers arrive through a railtie, so there is nothing to include and nothing to mount.
+
+Blobs, attachments and `has_one_attached` associations all work, and so does a plain source string if you are not using ActiveStorage:
+
+```ruby
+Audioproxy.url_for("s3://masters/2026/piece-final.wav", format: "opus", bitrate: 96)
+```
+
+Where to go from here:
+
+- [Options](#options) for the full variant vocabulary, in the proxy's short keys or their spelled-out aliases.
+- [ActiveStorage](#activestorage) for which storage services are supported, and for the one deployment coupling disk storage brings with it.
+- [Rails](#rails) for configuration precedence across credentials, ENV and an initializer.
+- `config.unsigned = true` for development against a proxy running `AP_ALLOW_INSECURE`, where no key or salt is needed.
+
 ## Configuration
 
 ```ruby
