@@ -79,10 +79,14 @@ class Audioproxy::Rails::RailtieTest < ActiveSupport::TestCase
     assert_match(/:endpoint and "endpoint"/, error.message)
   end
 
-  test "credentials that are not a hash raise" do
-    error = assert_raises(ArgumentError) { apply(credentials: "https://audio.example.com") }
+  # Array answers to to_h, so it reaches further than the other wrong shapes:
+  # [] would otherwise convert to {} and configure nothing at all.
+  [ "https://audio.example.com", [ 1, 2 ], [], 42 ].each do |shape|
+    test "credentials given as #{shape.inspect} raise" do
+      error = assert_raises(ArgumentError) { apply(credentials: shape) }
 
-    assert_match(/must be a Hash/, error.message)
+      assert_match(/must be a Hash/, error.message)
+    end
   end
 
   test "credential keys that are neither String nor Symbol raise" do
@@ -169,6 +173,16 @@ class Audioproxy::Rails::RailtieTest < ActiveSupport::TestCase
       assert_match(/unsigned from AP_ALLOW_INSECURE/, error.message)
       assert_match(/#{garbage}/, error.message)
     end
+  end
+
+  # YAML reads `unsigned: 1` as an Integer while AP_ALLOW_INSECURE=1 is a
+  # String. One written character, one meaning, whichever source it came from.
+  test "an unquoted 1 or 0 in credentials reads the same as in ENV" do
+    apply(credentials: { unsigned: 1 })
+    assert_equal true, @config.unsigned
+
+    apply(credentials: { unsigned: 0 })
+    assert_equal false, @config.unsigned
   end
 
   test "a YAML boolean in credentials is taken as-is" do

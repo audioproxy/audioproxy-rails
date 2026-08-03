@@ -82,12 +82,16 @@ module Audioproxy
           def normalize_credentials(credentials)
             return {} if credentials.nil?
 
-            unless credentials.respond_to?(:to_h)
+            # Converts rather than type-checks, because credentials arrive as
+            # an OrderedOptions. Array is excluded by hand: it answers to to_h
+            # too, and letting one through would raise TypeError from inside
+            # each_key below or, for [], silently configure nothing.
+            hash = credentials.to_h if credentials.respond_to?(:to_h) && !credentials.is_a?(Array)
+
+            unless hash.is_a?(Hash)
               raise ArgumentError,
                 "Audioproxy credentials must be a Hash of endpoint/key/salt/unsigned, got #{credentials.class}"
             end
-
-            hash = credentials.to_h
 
             hash.each_key do |key|
               unless key.is_a?(String) || key.is_a?(Symbol)
@@ -109,7 +113,12 @@ module Audioproxy
           def coerce_boolean(value, attribute, source)
             return value if value == true || value == false
 
-            case String.try_convert(value)&.downcase
+            # to_s, not String.try_convert: YAML reads `unsigned: 1` as an
+            # Integer, and try_convert would reject it with a message listing 1
+            # among the accepted literals. The same value spelled in the
+            # environment is a String and is accepted, so rejecting it here
+            # would make the two sources disagree over one written character.
+            case value.to_s.downcase
             when *TRUE_VALUES then true
             when *FALSE_VALUES then false
             else
