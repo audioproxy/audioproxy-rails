@@ -27,7 +27,18 @@ A blob on a Disk service SHALL resolve to `local://{key[0..1]}/{key[2..3]}/{key}
 
 #### Scenario: Layout matches DiskService
 - **WHEN** the resolver's path for a key is compared with `DiskService#path_for` for the same key under the same root
-- **THEN** the relative paths are identical
+- **THEN** the relative paths are identical, including for keys shorter than three characters and keys containing a separator
+
+#### Scenario: A key DiskService rejects is rejected here too
+- **WHEN** a blob's key contains a `.` or `..` path segment, or a null byte — the keys `DiskService#path_for` refuses as path-traversal defense
+- **THEN** an error is raised, rather than a `local://` source that would resolve outside the proxy's `AP_LOCAL_ROOT`
+
+### Requirement: A misconfigured supported service is not reported as unsupported
+An S3 service whose bucket cannot be read SHALL raise `Audioproxy::ConfigurationError`, not `Audioproxy::UnsupportedServiceError`: the service is supported and its configuration is not.
+
+#### Scenario: S3 service with no bucket
+- **WHEN** `url_for` is called with a blob on an S3 service reporting an empty bucket name
+- **THEN** `Audioproxy::ConfigurationError` is raised, naming the bucket as the thing to set
 
 ### Requirement: Unsupported services fail with an actionable error
 A blob on any other service (GCS, Azure, Mirror, …) SHALL raise `Audioproxy::UnsupportedServiceError` naming the service class, stating the supported services, and pointing at the documented alternative: ActiveStorage `rails_storage_proxy` mode behind the proxy's `https` source backend (upstream, on demand).

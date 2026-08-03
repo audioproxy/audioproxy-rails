@@ -287,7 +287,9 @@ If they disagree, URLs generate fine and the proxy answers 404. The gem cannot c
 
 This coupling is not avoidable by pointing the proxy at your app instead. ActiveStorage's ordinary disk URLs are Rails routes that redirect to the file, and the proxy's HTTPS source backend refuses redirects by design.
 
-The two hashed subdirectories in the path are ActiveStorage's own layout for disk storage (`DiskService#path_for`), reproduced here because the proxy needs a path rather than an ActiveStorage lookup. It is the one piece of near-private Rails API this gem leans on, so it lives alone in `Audioproxy::Rails::BlobResolver::DiskLayout` with a test that compares it against the real `DiskService` — a Rails upgrade that changed the layout would fail the suite rather than silently generate 404s.
+The two hashed subdirectories in the path are ActiveStorage's own layout for disk storage (`DiskService#path_for`), reproduced here because the proxy needs a path rather than an ActiveStorage lookup. It is the one piece of near-private Rails API this gem leans on, so it lives alone in `Audioproxy::Rails::BlobResolver::DiskLayout`, with a test that pins it against the real `DiskService` in both directions: identical paths for every key the service accepts, and an error for every key it rejects. A Rails upgrade that changed the layout fails the suite rather than silently generating 404s.
+
+Blob keys carrying a `.` or `..` path segment, or a null byte, raise. `DiskService` refuses them as path-traversal defense, and this side has more reason to: it never touches a filesystem, so nothing downstream would catch a key that walks out of the storage root. Keys ActiveStorage generates itself never look like this; explicitly-set keys can. Note that the S3 path does *not* apply the same rule, deliberately — an S3 key is an opaque string in which `..` means nothing, and `S3Service` does not reject it either.
 
 #### Other services: the third rung
 

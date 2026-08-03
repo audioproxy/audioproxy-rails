@@ -5,6 +5,8 @@ require "test_helper"
 # case would prove the methods work while saying nothing about whether the
 # railtie's on_load(:action_view) hook ever fired.
 class Audioproxy::Rails::HelpersTest < ActionView::TestCase
+  include AttachedRecordings
+
   SOURCE = "local://previews/track.wav".freeze
 
   test "the railtie mixed the helpers into ActionView" do
@@ -193,21 +195,15 @@ class Audioproxy::Rails::HelpersTest < ActionView::TestCase
   end
 
   private
-    def attached_recording
-      recording = Recording.create!(title: "Take 1")
-      recording.audio.attach(
-        io: StringIO.new("RIFF....WAVE"),
-        filename: "take.wav",
-        content_type: "audio/wav"
-      )
-      recording
-    end
-
-    # Built from the key the way the proxy would have to find it, not from the
-    # resolver, so this asserts against something other than itself.
+    # Asked of the real DiskService, not restated from the layout rule. Written
+    # out longhand here once, this said "#{key[0..1]}/#{key[2..3]}/#{key}" — the
+    # implementation's own rule, which made the assertion agree with the code by
+    # construction and would have passed just as happily while the layout was
+    # wrong.
     def disk_path_for(recording)
-      key = recording.audio.key
+      service = ActiveStorage::Blob.service
+      root = Pathname.new(File.expand_path(service.root))
 
-      "#{key[0..1]}/#{key[2..3]}/#{key}"
+      Pathname.new(service.path_for(recording.audio.key)).relative_path_from(root).to_s
     end
 end

@@ -1,3 +1,4 @@
+require "pathname"
 require "audioproxy"
 
 module Audioproxy
@@ -88,10 +89,13 @@ module Audioproxy
           def bucket_for(service)
             name = String.try_convert(service.bucket.name)
 
+            # ConfigurationError, not UnsupportedServiceError: S3 *is* supported,
+            # and telling someone their S3 service is unsupported because its
+            # bucket is unset sends them to fix the wrong thing.
             if name.nil? || name.empty?
-              raise UnsupportedServiceError,
-                "the S3 service behind this blob reports no bucket name, so #{service.class} " \
-                "cannot be resolved to an s3:// source"
+              raise ConfigurationError,
+                "the S3 service behind this blob reports no bucket name; set a bucket on the " \
+                "#{service.class} in config/storage.yml"
             end
 
             name
@@ -121,13 +125,47 @@ module Audioproxy
               raise ArgumentError, "an ActiveStorage blob key must be a non-empty String, got #{key.inspect}"
             end
 
-            "#{folder_for(string)}/#{string}"
+            reject_unsafe(string)
+
+            # folder_for can produce an empty middle segment ("ab" gives "ab/"),
+            # and a key may carry its own separators. DiskService never sees
+            # either, because it hands the join to File.expand_path, which
+            # collapses them; reproducing the layout means reproducing that
+            # normalization too, or a key like "ab" resolves to "ab//ab" here
+            # and "ab/ab" on disk. cleanpath is the collapse without expand_path's
+            # trip through the actual filesystem root.
+            Pathname.new(File.join(folder_for(string), string)).cleanpath.to_s.delete_prefix("/")
           end
 
           private
             # Mirrors DiskService#folder_for exactly.
             def folder_for(key)
               [ key[0..1], key[2..3] ].join("/")
+            end
+
+            # DiskService#path_for rejects these before touching the filesystem
+            # and calls it defense in depth. The same keys have to be rejected
+            # here, and for a sharper reason: this side does not touch a
+            # filesystem at all, so nothing downstream would catch them. A key
+            # of "../evil" would otherwise resolve to local://..//e/../evil and
+            # send the proxy climbing out of its AP_LOCAL_ROOT — a valid-looking
+            # URL for a file that is not the blob, which is the one thing this
+            # gem may not emit.
+            def reject_unsafe(key)
+              if key.include?("\0")
+                raise ArgumentError, "an ActiveStorage blob key must not contain null bytes, got #{key.inspect}"
+              end
+
+              traversal = begin
+                key.split("/").intersect?(%w[. ..])
+              rescue Encoding::CompatibilityError
+                raise ArgumentError, "an ActiveStorage blob key must be a valid, comparable String, got #{key.inspect}"
+              end
+
+              if traversal
+                raise ArgumentError,
+                  "an ActiveStorage blob key must not contain . or .. path segments, got #{key.inspect}"
+              end
             end
         end
       end

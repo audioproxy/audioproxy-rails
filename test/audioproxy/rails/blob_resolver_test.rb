@@ -3,6 +3,8 @@ require "tmpdir"
 require "audioproxy/rails/blob_resolver"
 
 class Audioproxy::Rails::BlobResolverTest < ActiveSupport::TestCase
+  include AttachedRecordings
+
   # Every supported and unsupported service is stood in for by a double that
   # only reports a class name and a bucket, because that is the whole of what
   # resolution reads. Naming the real constants instead would load
@@ -52,10 +54,15 @@ class Audioproxy::Rails::BlobResolverTest < ActiveSupport::TestCase
     assert_includes resolve(blob_on(service, key: "abc123")), "s3://other-bucket/"
   end
 
-  test "an S3 service reporting no bucket raises rather than emitting s3:///key" do
+  # ConfigurationError rather than UnsupportedServiceError: S3 is supported, so
+  # an unset bucket is a misconfiguration, and saying "unsupported" would send
+  # the reader to fix the wrong thing.
+  test "an S3 service reporting no bucket raises a configuration error, not an unsupported one" do
     service = service_double("ActiveStorage::Service::S3Service", bucket: bucket_double(""))
 
-    assert_raises(Audioproxy::UnsupportedServiceError) { resolve(blob_on(service)) }
+    error = assert_raises(Audioproxy::ConfigurationError) { resolve(blob_on(service)) }
+
+    assert_match(/bucket/, error.message)
   end
 
   test "a subclass of a supported service resolves like its parent" do
@@ -79,21 +86,38 @@ class Audioproxy::Rails::BlobResolverTest < ActiveSupport::TestCase
     assert_equal "local://wx/yz/wxyz9876", resolve(blob)
   end
 
+  # The keys that matter here are the awkward ones. An earlier version of this
+  # test used only realistic tokens and "abcd"/"abcde" — every key ≥4 characters
+  # with no separator — which is exactly the region where a naive
+  # "#{folder}/#{key}" agrees with DiskService. It passed while the layout was
+  # wrong for "ab", "ab/cd" and "/foo".
+  DISK_PARITY_KEYS = [
+    ActiveStorage::Blob.generate_unique_secure_token,
+    ActiveStorage::Blob.generate_unique_secure_token,
+    "wxyz9876",
+    "abcde",
+    "abcd",
+    "abc",
+    "ab",
+    "a",
+    "ab/cd",
+    "/foo",
+    "a..b",
+    "ünïcödé-kéy"
+  ].freeze
+
+  # Keys DiskService refuses outright — dot segments and null bytes. It never
+  # computes a path for these, so there is no parity to assert: only that this
+  # gem refuses them too, rather than emitting a source string DiskService
+  # would have called invalid. The last one is written as an escape on purpose;
+  # a literal NUL in the source is invisible in every diff and editor.
+  DISK_REJECTED_KEYS = [ "..", "../evil", "../../etc/passwd", "a/../b", ".", "a\0b" ].freeze
+
   test "the disk layout module matches DiskService's own path computation" do
     service = ActiveStorage::Service::DiskService.new(root: Dir.mktmpdir)
     root = Pathname.new(File.expand_path(service.root))
 
-    # Realistic ActiveStorage keys plus the short ones that exercise the
-    # slicing, since [0..1]/[2..3] is where a reimplementation drifts.
-    keys = [
-      ActiveStorage::Blob.generate_unique_secure_token,
-      ActiveStorage::Blob.generate_unique_secure_token,
-      "wxyz9876",
-      "abcde",
-      "abcd"
-    ]
-
-    keys.each do |key|
+    DISK_PARITY_KEYS.each do |key|
       expected = Pathname.new(service.path_for(key)).relative_path_from(root).to_s
 
       assert_equal expected, Audioproxy::Rails::BlobResolver::DiskLayout.relative_path_for(key),
@@ -101,9 +125,38 @@ class Audioproxy::Rails::BlobResolverTest < ActiveSupport::TestCase
     end
   end
 
+  test "every key DiskService rejects is rejected here too" do
+    service = ActiveStorage::Service::DiskService.new(root: Dir.mktmpdir)
+
+    DISK_REJECTED_KEYS.each do |key|
+      assert_raises(ActiveStorage::InvalidKeyError, "DiskService now accepts #{key.inspect}; this test's premise is stale") do
+        service.path_for(key)
+      end
+
+      assert_raises(ArgumentError, "#{key.inspect} resolved instead of raising") do
+        Audioproxy::Rails::BlobResolver::DiskLayout.relative_path_for(key)
+      end
+    end
+  end
+
+  test "a traversal key raises out of the resolver rather than escaping AP_LOCAL_ROOT" do
+    blob = ActiveStorage::Blob.new(key: "../evil.wav", filename: "x.wav", byte_size: 1, checksum: "x")
+    blob.service_name = "test"
+
+    error = assert_raises(ArgumentError) { resolve(blob) }
+
+    assert_match(/\.\./, error.message)
+  end
+
   test "a blank blob key raises rather than producing a rootward local:// path" do
     assert_raises(ArgumentError) { Audioproxy::Rails::BlobResolver::DiskLayout.relative_path_for("") }
     assert_raises(ArgumentError) { Audioproxy::Rails::BlobResolver::DiskLayout.relative_path_for(nil) }
+  end
+
+  test "no resolved disk path ever begins with a separator" do
+    DISK_PARITY_KEYS.each do |key|
+      refute_operator Audioproxy::Rails::BlobResolver::DiskLayout.relative_path_for(key), :start_with?, "/"
+    end
   end
 
   # --- unsupported services -------------------------------------------------
@@ -168,15 +221,4 @@ class Audioproxy::Rails::BlobResolverTest < ActiveSupport::TestCase
       assert_match(/#{source.class}/, error.message)
     end
   end
-
-  private
-    def attached_recording
-      recording = Recording.create!(title: "Take 1")
-      recording.audio.attach(
-        io: StringIO.new("RIFF....WAVE"),
-        filename: "take.wav",
-        content_type: "audio/wav"
-      )
-      recording
-    end
 end
