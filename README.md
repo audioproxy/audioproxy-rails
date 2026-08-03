@@ -10,7 +10,7 @@ Full Rails is a development dependency only. `require "audioproxy"` works in a p
 
 ## Status
 
-Core signing and typed options work, in both the proxy's short spellings and their aliases. The Railtie and credentials wiring, view helpers, and ActiveStorage blob resolution are follow-up slices; see `openspec/changes/`.
+Core signing and typed options work, in both the proxy's short spellings and their aliases, as do the Railtie's credentials/ENV wiring and the view helpers. ActiveStorage blob resolution is a follow-up slice; see `openspec/changes/`.
 
 ## Installation
 
@@ -166,6 +166,81 @@ Audioproxy.url_for("local://a.wav", unsigned: true)
 ```
 
 `Audioproxy.url_for` is Rails-free: it works in jobs, mailers, serializers, and plain Ruby scripts.
+
+## Rails
+
+In a Rails app there is nothing to mount and, usually, nothing to write: a railtie reads your configuration and mixes the view helpers into ActionView.
+
+### Configuration from credentials
+
+```bash
+bin/rails credentials:edit
+```
+
+```yaml
+audioproxy:
+  endpoint: https://audio.example.com
+  key: 00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff
+  salt: ffeeddccbbaa99887766554433221100
+```
+
+That is the whole setup. String and symbol keys both work, and each setting resolves on its own — you can keep `key` and `salt` in credentials and leave `endpoint` to the environment.
+
+### ENV parity with the proxy
+
+Every setting also reads from an environment variable, and the names are the proxy's own:
+
+| Setting | Variable |
+| --- | --- |
+| `endpoint` | `AP_ENDPOINT` |
+| `key` | `AP_KEY` |
+| `salt` | `AP_SALT` |
+| `unsigned` | `AP_ALLOW_INSECURE` |
+
+The names match on purpose: in development you can point a docker-compose app service and the proxy service at one shared env file and have both read the same values. An empty variable (`AP_KEY=` with nothing after it) counts as unset.
+
+`AP_ALLOW_INSECURE` accepts `1`, `t`, `true`, `0`, `f`, `false`, case-insensitively, and raises on anything else. Those are the literals Go's `strconv.ParseBool` accepts, which is what the proxy parses the variable with — the case-insensitivity is the one liberty taken, so `True` and `TrUe` both work here where Go takes only the former. It is stricter than Rails' usual boolean cast for a reason: a cast that reads every unrecognized string as true would turn `AP_ALLOW_INSECURE=flase` into a production app emitting unsigned URLs.
+
+In credentials the same setting takes a YAML boolean, or an unquoted `1`/`0`, which YAML hands over as an Integer. Anything under `audioproxy:` that is not `endpoint`, `key`, `salt` or `unsigned` raises, and so does one setting written twice under different spellings. That strictness earns its keep on `unsigned` in particular: the other three default to nothing and would fail loudly at `url_for`, but `unsinged: true` would leave `unsigned` at `false` and quietly emit a signed URL where you meant the `insecure` segment.
+
+Two caveats on that flag. It sets only *this* client's behaviour, telling the gem to emit the literal `insecure` signature segment instead of an HMAC; the proxy decides independently whether it will accept one. And it belongs in development only — never set it in production, where it hands anyone who can read a URL the ability to request any variant of any source.
+
+### Precedence
+
+**initializer > credentials > ENV.** The railtie reads ENV first, lays credentials over it per setting, and app initializers run afterwards, so an explicit `Audioproxy.configure` in `config/initializers/audioproxy.rb` always has the last word:
+
+```ruby
+# config/initializers/audioproxy.rb — wins over credentials and ENV
+Audioproxy.configure do |config|
+  config.endpoint = "https://audio-staging.example.com"
+  config.default_options = { format: "opus", bitrate: 96 }
+end
+```
+
+Nothing is validated at boot. An app with no credentials and no ENV boots fine — a signed `url_for` is where the missing key surfaces, and an app running unsigned in development never needs one. That keeps `assets:precompile` and similar tasks working in apps that never generate a URL. It also means URL generation belongs at request or job time, not at class-load time in a constant.
+
+### View helpers
+
+`audioproxy_url` is `Audioproxy.url_for` under another name, available in every view:
+
+```erb
+<%= audioproxy_url(@track.master_url, format: "opus", bitrate: 96) %>
+```
+
+`audioproxy_audio_tag` builds that URL and hands it to Rails' `audio_tag`. Proxy options are keyword arguments; HTML attributes go in `html:`:
+
+```erb
+<%= audioproxy_audio_tag @track.master_url,
+      format: "opus", bitrate: 96,
+      html: { controls: true, preload: "none", class: "player" } %>
+```
+
+```html
+<audio controls="controls" preload="none" class="player"
+       src="https://audio.example.com/zfLTfPPh…/f:opus/br:96/enc/…"></audio>
+```
+
+The `html:` bucket is not ceremony. Without it, proxy option names and HTML attribute names would share one namespace, and the gem would have to guess which one you meant for any key it did not recognize — so a mistyped `bitrat: 96` would land silently on the `<audio>` element as an attribute and quietly ship the default format instead. With the bucket, the two never mix in either direction: an unknown proxy option raises, and an `html:` entry never reaches the proxy. Proxy options never appear as tag attributes.
 
 ## Development
 
