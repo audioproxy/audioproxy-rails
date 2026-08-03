@@ -4,9 +4,9 @@ Build signed variant URLs for the [audioproxy](https://github.com/audioproxy) me
 
 ## Architecture
 
-The URL builder lives in a Rails-free `Audioproxy` namespace — plain Ruby, no Rails constants, so it can be extracted to a standalone gem with a `git mv`. Everything Rails-facing lives under `Audioproxy::Rails` and hooks in through a railtie, not an engine: no routes, no `app/`, no migrations.
+`Audioproxy::Signer` holds signature building and depends on stdlib and `base64` only, so it can be lifted into a standalone gem with a `git mv` if a non-Rails project ever needs it. The rest of the `Audioproxy` namespace — configuration and URL assembly — is a Rails integration and uses ActiveSupport. Everything Rails-facing lives under `Audioproxy::Rails` and hooks in through a railtie, not an engine: no routes, no `app/`, no migrations.
 
-Rails is a development dependency only. `require "audioproxy"` works in a plain Ruby process; the railtie is required only when `Rails::Railtie` is already defined.
+Full Rails is a development dependency only. `require "audioproxy"` works in a plain Ruby process; the railtie is required only when `Rails::Railtie` is already defined.
 
 ## Status
 

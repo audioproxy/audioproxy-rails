@@ -2,13 +2,25 @@
 
 ## Architecture
 
-The URL builder lives in a Rails-free `Audioproxy` namespace: plain Ruby, stdlib only, no Rails
-constants. It must stay extractable to a standalone gem with a `git mv`. Everything Rails-facing
-lives under `Audioproxy::Rails` and hooks in through a railtie, not an engine (no routes, no `app/`,
-no migrations). Rails is a development dependency only.
+This is a Rails integration, and ActiveSupport is a runtime dependency. Use it. The one place that
+may not is **`Audioproxy::Signer`**: signature building is the piece a future project might want as
+a standalone gem, so it depends on stdlib and `base64` only — no ActiveSupport, no Rails, and no
+other file in this gem. Everything it needs arrives through its constructor. That is the extraction
+seam, and it is the whole of it; `Config` and `UrlBuilder` are free to be Rails-flavoured.
 
-`test/audioproxy/rails_free_load_test.rb` pins that seam by loading the core in a subprocess with
-Bundler's environment stripped. If a change to the core breaks it, the change is wrong, not the test.
+Everything Rails-facing lives under `Audioproxy::Rails` and hooks in through a railtie, not an
+engine (no routes, no `app/`, no migrations). Full Rails stays a development dependency.
+
+`test/audioproxy/signer_isolation_test.rb` pins the seam by loading `audioproxy/signer` alone in a
+subprocess with Bundler's environment stripped, and asserting it still reproduces a known-answer
+vector. If a change to the signer breaks it, the change is wrong, not the test.
+
+That test greps `$LOADED_FEATURES` rather than checking `defined?(ActiveSupport)`, and the
+difference matters: a core_ext file like `active_support/core_ext/object/blank.rb` patches `Object`
+without ever defining the `ActiveSupport` constant, so a constant check passes while the dependency
+is fully present. Two earlier versions of this test were vacuous for exactly that reason. If you
+touch the guard, re-verify it by temporarily adding an ActiveSupport require to `signer.rb` and
+confirming the test actually fails.
 
 Correctness here is byte-exactness against the audioproxy server's signer. A wrong byte does not
 raise; it 403s at the proxy at request time, far from the call site. Two consequences:

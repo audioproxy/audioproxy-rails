@@ -1,4 +1,5 @@
 require "uri"
+require "active_support/core_ext/hash/keys"
 
 module Audioproxy
   # Raised when a URL is requested but the configuration cannot produce one the
@@ -95,7 +96,8 @@ module Audioproxy
           raise ArgumentError, "Audioproxy config endpoint must not carry a query or fragment, got #{value.inspect}"
         end
 
-        endpoint.sub(%r{/\z}, "")
+        # delete_suffix removes exactly one occurrence, which is what D5 says.
+        endpoint.delete_suffix("/")
       end
 
       def normalize_default_options(value)
@@ -105,19 +107,15 @@ module Audioproxy
           raise ArgumentError, "Audioproxy config default_options must be a Hash, got #{value.class}"
         end
 
-        normalized = value.to_h do |key, option|
+        value.each_key do |key|
           unless key.is_a?(String) || key.is_a?(Symbol)
             raise ArgumentError, "Audioproxy config default_options keys must be Strings or Symbols, got #{key.class}"
           end
-
-          [ key.to_sym, option ]
-        end
-        unknown = normalized.keys - OPTION_KEYS
-        unless unknown.empty?
-          raise ArgumentError,
-            "Audioproxy config default_options got unsupported key(s) #{unknown.inspect}; this version supports #{OPTION_KEYS.inspect}"
         end
 
+        normalized = value.symbolize_keys
+        # Raises ArgumentError: "Unknown key: :format. Valid keys are: :raw"
+        normalized.assert_valid_keys(*OPTION_KEYS)
         normalized
       end
   end

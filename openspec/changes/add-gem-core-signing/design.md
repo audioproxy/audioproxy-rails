@@ -34,9 +34,20 @@ The gem skeleton (gemspec, namespace split, Minitest harness, dummy app) comes f
 
 ## Decisions
 
-### D1: Everything in this slice is core-namespace only
+### D1: The extraction seam is signature building, not the whole namespace
 
-Per the scaffold slice's namespace split, all code here lives under plain `Audioproxy` with zero Rails/ActiveSupport dependency; nothing touches `Audioproxy::Rails`. The Rails-free load smoke test from the scaffold keeps this honest as behavior arrives.
+Per the scaffold slice's namespace split, all code here lives under plain `Audioproxy`; nothing touches `Audioproxy::Rails`.
+
+**Narrowed after review.** D1 originally required the entire slice to carry "zero Rails/ActiveSupport dependency". That was drawn too wide. This gem is a *Rails integration* — ActiveSupport is a reasonable runtime dependency for it, and refusing one bought nothing but hand-rolled re-implementations of `symbolize_keys`, `assert_valid_keys` and `blank?`.
+
+What genuinely needs to stay portable is **signature building**: the piece a future project might want as a standalone, Rails-free gem. So the boundary moves from the namespace to a single class:
+
+- `Audioproxy::Signer` — HMAC + base64url, nothing else. Depends on stdlib and `base64` only: no ActiveSupport, no Rails, and no other file in this gem. Everything it needs arrives through its constructor. Extracting it is a `git mv` plus a gemspec.
+- Everything else (`Config`, `UrlBuilder`, and the Rails layer) may use ActiveSupport freely.
+
+`Audioproxy::UrlBuilder#sign` stays as the public entry point and delegates: whether the configuration *can* sign is the builder's problem, how the bytes are produced is the signer's.
+
+The old smoke test asserted only that `Rails` was undefined after loading the core, which would have silently permitted an ActiveSupport dependency — it never guarded the half of D1 most likely to erode. The replacement loads `audioproxy/signer` alone in a subprocess and asserts that neither `Rails` nor `ActiveSupport` is defined and that it still reproduces a known-answer vector. That is a test of the seam that actually exists.
 
 ### D2: Config is a plain mutable singleton with an override path
 

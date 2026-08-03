@@ -1,4 +1,5 @@
-require "openssl"
+require "base64"
+require "active_support/core_ext/object/blank"
 
 module Audioproxy
   # Assembles +{endpoint}/{signature}/{options}/{source}+ URLs, byte-compatible
@@ -6,6 +7,9 @@ module Audioproxy
   #
   # The signature covers everything after itself (leading +/+ included), so an
   # endpoint path prefix cannot disturb it.
+  #
+  # This is the Rails-facing half and may use ActiveSupport freely. The HMAC
+  # itself lives in Audioproxy::Signer, which may not — see D1.
   class UrlBuilder
     # Literal signature segment the proxy accepts under AP_ALLOW_INSECURE.
     INSECURE_SEGMENT = "insecure".freeze
@@ -30,18 +34,15 @@ module Audioproxy
       "#{base}/#{insecure ? INSECURE_SEGMENT : sign(rest_of_path)}#{rest_of_path}"
     end
 
-    # base64url(HMAC-SHA256(key, salt ‖ rest_of_path)), unpadded.
+    # Signs via Audioproxy::Signer. Whether the config *can* sign is this
+    # class's problem; how the bytes are produced is the signer's.
     def sign(rest_of_path)
-      unless rest_of_path.start_with?("/")
-        raise ArgumentError, "rest_of_path must begin with '/' to be verifiable at the proxy, got #{rest_of_path.inspect}"
-      end
-
       missing = [ (:key unless config.key), (:salt unless config.salt) ].compact
       unless missing.empty?
         raise ConfigurationError, "Audioproxy cannot sign a URL: #{missing.join(" and ")} not configured (set them, or use unsigned: true)"
       end
 
-      base64url OpenSSL::HMAC.digest("SHA256", config.key, config.salt + rest_of_path.b)
+      Signer.new(key: config.key, salt: config.salt).sign(rest_of_path)
     end
 
     private
@@ -54,8 +55,8 @@ module Audioproxy
           raise ArgumentError, "raw options must be a String, got #{raw.class}"
         end
 
+        return FALLBACK_OPTIONS if segment.blank?
         segment = segment.strip
-        return FALLBACK_OPTIONS if segment.empty?
 
         # The builder supplies the separators. A bracketing slash would sign a
         # path with an empty segment, which the proxy rejects — and it would do
@@ -81,8 +82,10 @@ module Audioproxy
         "enc/#{base64url(string)}"
       end
 
+      # Unpadded, per D3/D4: the proxy accepts both spellings, but emitting one
+      # keeps URLs and CDN cache keys stable.
       def base64url(bytes)
-        [ bytes ].pack("m0").tr("+/", "-_").delete("=")
+        Base64.urlsafe_encode64(bytes, padding: false)
       end
   end
 end

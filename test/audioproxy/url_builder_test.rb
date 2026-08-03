@@ -263,7 +263,11 @@ class Audioproxy::UrlBuilderTest < ActiveSupport::TestCase
 
   private
     # Deliberately spelled out rather than calling the builder, so the tests
-    # assert against the algorithm and not against the implementation.
+    # assert against the algorithm and not against the implementation. That
+    # extends to the base64url step below: the builder uses
+    # Base64.urlsafe_encode64, so computing the expected value by the same call
+    # would only prove the method agrees with itself. The pack/tr/delete spelling
+    # is an independent route to the same bytes — keep it that way.
     def reference_signature(rest_of_path)
       key = [ SignatureVectors::KEY_HEX ].pack("H*")
       salt = [ SignatureVectors::SALT_HEX ].pack("H*")
@@ -275,8 +279,10 @@ class Audioproxy::UrlBuilderTest < ActiveSupport::TestCase
       [ bytes ].pack("m0").tr("+/", "-_").delete("=")
     end
 
+    # urlsafe_decode64 accepts unpadded input, so the hand-rolled padding
+    # arithmetic this replaces is not worth keeping. Independence does not
+    # matter here: this only round-trips the source, it does not pin a contract.
     def decode_base64url(segment)
-      padded = segment.tr("-_", "+/") + "=" * ((4 - segment.length % 4) % 4)
-      padded.unpack1("m0").force_encoding(Encoding::UTF_8)
+      Base64.urlsafe_decode64(segment).force_encoding(Encoding::UTF_8)
     end
 end

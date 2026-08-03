@@ -1,8 +1,10 @@
 require "audioproxy/version"
+require "audioproxy/signer"
 require "audioproxy/config"
 require "audioproxy/url_builder"
 
-# Rails-free core. Nothing in this namespace may reference Rails constants.
+# Nothing in this namespace may reference Rails constants; ActiveSupport is
+# fair game except inside Audioproxy::Signer, which stays liftable. See D1.
 module Audioproxy
   class << self
     attr_writer :config
