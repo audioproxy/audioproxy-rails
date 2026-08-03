@@ -275,6 +275,86 @@ class Audioproxy::UrlBuilderTest < ActiveSupport::TestCase
     assert_match(/raw/, error.message)
   end
 
+  # --- spelled-out aliases -------------------------------------------------
+
+  test "aliased per-call keys render as their canonical keys" do
+    assert_includes @builder.url_for("local://a.wav", format: :opus, bitrate: 96), "/f:opus/br:96/enc/"
+  end
+
+  test "an aliased default is overridden by a canonical per-call key, once" do
+    @config.default_options = { bitrate: 96 }
+
+    url = @builder.url_for("local://a.wav", br: 128)
+
+    assert_includes url, "/br:128/enc/"
+    refute_includes url, "br:96"
+  end
+
+  test "a canonical default is overridden by an aliased per-call key, in place" do
+    @config.default_options = { f: :opus, br: 96 }
+
+    assert_includes @builder.url_for("local://a.wav", bitrate: 128), "/f:opus/br:128/enc/"
+  end
+
+  test "an aliased default applies on its own" do
+    @config.default_options = { format: :opus, peak_format: :dat }
+
+    assert_includes @builder.url_for("local://a.wav"), "/f:opus/pk_fmt:dat/enc/"
+  end
+
+  test "both spellings of one option in a call raise, naming both" do
+    error = assert_raises(ArgumentError) { @builder.url_for("local://a.wav", bitrate: 96, br: 128) }
+
+    assert_match(/bitrate/, error.message)
+    assert_match(/br/, error.message)
+  end
+
+  test "both spellings of one option in the defaults are rejected at assignment" do
+    error = assert_raises(ArgumentError) { @config.default_options = { bitrate: 96, br: 128 } }
+
+    assert_match(/bitrate/, error.message)
+    assert_match(/br/, error.message)
+  end
+
+  test "a near-miss alias raises rather than being dropped" do
+    error = assert_raises(ArgumentError) { @builder.url_for("local://a.wav", bit_rate: 96) }
+
+    assert_match(/bit_rate/, error.message)
+  end
+
+  # --- byte stability ------------------------------------------------------
+
+  # This slice must not change a single rendered byte. If any of these pairs
+  # ever diverge, the alias layer has grown a second rendering path (D1).
+  test "an aliased call and its canonical equivalent produce identical URLs" do
+    [
+      [ { format: :opus, trim: [ 12.5, 30 ] }, { f: :opus, t: [ 12.5, 30 ] } ],
+      [ { normalize: [ :ebu, -16, -1.5, 11 ] }, { norm: [ :ebu, -16, -1.5, 11 ] } ],
+      [ { peak_count: 800, peak_format: :dat }, { pts: 800, pk_fmt: :dat } ],
+      [ { sample_rate: 44100, channels: 1, bit_depth: 24 }, { sr: 44100, ch: 1, bd: 24 } ],
+      [ { quality: 5, gain: -2.5, fade: [ 1, 2 ] }, { q: 5, gain: -2.5, fade: [ 1, 2 ] } ],
+      [ { download: "piece.mp3", cache_buster: "v2" }, { dl: "piece.mp3", cb: "v2" } ]
+    ].each do |aliased, canonical|
+      assert_equal @builder.url_for("local://a.wav", **canonical),
+        @builder.url_for("local://a.wav", **aliased),
+        "expected #{aliased.keys.join(", ")} to sign identically to #{canonical.keys.join(", ")}"
+    end
+  end
+
+  test "a duration produces the same URL as the number of seconds it stands for" do
+    {
+      { t: 30.seconds } => { t: 30 },
+      { t: 1.minute } => { t: 60 },
+      { fade: [ 1.5.seconds, 2.seconds ] } => { fade: [ 1.5, 2 ] },
+      { t: [ 12.5, 1.minute ] } => { t: [ 12.5, 60 ] },
+      { trim: 0.3.seconds } => { t: 0.3 }
+    }.each do |duration, number|
+      assert_equal @builder.url_for("local://a.wav", **number),
+        @builder.url_for("local://a.wav", **duration),
+        "expected #{duration.inspect} to sign identically to #{number.inspect}"
+    end
+  end
+
   test "value domains are the proxy's business, not the builder's" do
     assert_includes @builder.url_for("local://a.wav", br: 999999), "/br:999999/enc/"
   end

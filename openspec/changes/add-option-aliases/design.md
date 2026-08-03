@@ -54,8 +54,8 @@ bytes to drift. One vocabulary reaches the renderer.
 | `fade` | `fade` |
 | `gain` | `gain` |
 | `norm` | `normalize` |
-| `pts` | `points` |
-| `pk_fmt` | `peaks_format` |
+| `pts` | `peak_count` |
+| `pk_fmt` | `peak_format` |
 | `dl` | `download` |
 | `cb` | `cache_buster` |
 
@@ -67,6 +67,17 @@ names above are the obvious Ruby spellings, but if the proxy's docs already call
 other than "points" or `norm` something other than "normalize", its name wins. Inventing a second
 vocabulary for the same concepts is the one way this slice can do lasting damage, and it is cheap to
 avoid by reading the server's option docs first.
+
+**Checked (task 1.1).** The proxy's option tables (`README.md`, `docs/audio-proxy-api-v1.md`) use
+the short keys throughout and publish no long names, but `AudioProxy.Options`' own struct does:
+`format`, `bitrate`, `quality`, `sample_rate`, `channels`, `bit_depth`, `trim_start`/`trim_duration`,
+`fade_in`/`fade_out`, `gain`, `norm`, `peak_count`, `peak_format`, `download`, `cache_buster`. Two
+of the guesses above lost and were amended in place: `pts` is `peak_count`, not `points`, and
+`pk_fmt` is `peak_format` — singular — not `peaks_format`. The rest already agreed. Three keys have
+no server long name to adopt and keep the Ruby spelling: `t` and `fade`, whose struct fields name
+the *parts* (`trim_start`, `fade_in`) rather than the option, so `trim` and `fade` collapse them;
+and `norm`, whose struct field is the short key itself, leaving `normalize` unclaimed rather than
+contradicted.
 
 ### D3: Resolve before merging defaults
 
@@ -115,9 +126,19 @@ Two things make this worth writing down rather than leaving to the implementer:
   while `30.seconds.is_a?(Numeric)` is `true` — an error message the caller cannot act on. The
   implementation needs an explicit `when ActiveSupport::Duration`, and the misleading rejection is
   reason enough to do this here rather than defer it again.
-- **Conversion is exact and already correct.** `Duration#to_r` gives `30/1` for `30.seconds` and
-  `90/1` for `1.5.minutes`, so it feeds the existing `exact_decimal` path with no new number
-  handling and no new rounding rules. Sub-second durations (`0.5.seconds`) work for the same reason.
+- **Conversion is unwrapping, not `to_r`.** A `Duration` wraps the number the caller wrote, and
+  `Duration#value` hands it back unchanged — `30` for `30.seconds`, `0.3` for `0.3.seconds`, `60`
+  for `1.minute` — so it feeds the existing `format_number` path with no new number handling and no
+  new rounding rules, and a duration renders identically to the number of seconds it stands for by
+  construction.
+
+  `Duration#to_r`, which an earlier draft of this decision prescribed, does **not** work: it is
+  exact about the wrong thing. For `0.3.seconds` it returns the double's true value,
+  `5404319552844595/18014398509481984`, and the renderer rejects that as needing more than three
+  decimal places — while the identical `t: 0.3` renders `0.3`, because `exact_decimal` deliberately
+  routes Floats through `Rational(value.to_s)` for exactly this reason. Whole-second and
+  binary-exact durations (`30.seconds`, `1.5.seconds`, `1.minute`) happen to survive `to_r`, which
+  is what made the claim look true. Sub-second durations are the case that decides it.
 
 Calendar-variable units (`1.month`, `1.year`) resolve through `Duration`'s own average-seconds
 definition rather than a rule invented here. They are absurd as a trim and nothing stops them, which

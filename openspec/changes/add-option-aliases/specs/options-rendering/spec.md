@@ -4,7 +4,7 @@
 `url_for` SHALL accept a spelled-out alias for each of the proxy's canonical option keys, resolved
 to the canonical key before rendering: `format`→`f`, `bitrate`→`br`, `quality`→`q`,
 `sample_rate`→`sr`, `channels`→`ch`, `bit_depth`→`bd`, `trim`→`t`, `fade`→`fade`, `gain`→`gain`,
-`normalize`→`norm`, `points`→`pts`, `peaks_format`→`pk_fmt`, `download`→`dl`,
+`normalize`→`norm`, `peak_count`→`pts`, `peak_format`→`pk_fmt`, `download`→`dl`,
 `cache_buster`→`cb`. An aliased key SHALL render byte-identically to its canonical spelling.
 
 #### Scenario: Alias renders as the canonical key

@@ -10,7 +10,7 @@ Full Rails is a development dependency only. `require "audioproxy"` works in a p
 
 ## Status
 
-Core signing and typed options work. The Railtie and credentials wiring, view helpers, and ActiveStorage blob resolution are follow-up slices; see `openspec/changes/`.
+Core signing and typed options work, in both the proxy's short spellings and their aliases. The Railtie and credentials wiring, view helpers, and ActiveStorage blob resolution are follow-up slices; see `openspec/changes/`.
 
 ## Installation
 
@@ -45,37 +45,71 @@ The result is `{endpoint}/{signature}/{options}/{source}`. The source is always 
 
 ## Options
 
-Describe the variant with the proxy's option keys as Ruby keyword arguments:
+Describe the variant with the proxy's option keys as Ruby keyword arguments, either in the proxy's own short spelling or in the spelled-out alias next to it:
 
 ```ruby
 Audioproxy.url_for("s3://masters/piece.wav", f: :opus, br: 96, t: [12.5, 30])
 # => ".../f:opus/br:96/t:12.5:30/enc/..."
 ```
 
-| Key | Example | Meaning |
-| --- | --- | --- |
-| `f` | `f: :opus` | output format |
-| `br` | `br: 96` | bitrate (kbps) |
-| `q` | `q: 5` | quality, for codecs that take one instead of a bitrate |
-| `sr` | `sr: 44100` | sample rate |
-| `ch` | `ch: 1` | channel count |
-| `bd` | `bd: 24` | bit depth |
-| `t` | `t: [12.5, 30]` | trim: start, optional duration |
-| `fade` | `fade: [1, 2]` | fade in, optional fade out |
-| `gain` | `gain: -2.5` | gain adjustment (dB) |
-| `norm` | `norm: [:ebu, -16, -1.5, 11]` | loudness normalization: mode, then I, TP, LRA |
-| `pts` | `pts: 800` | peak points, for waveform output |
-| `pk_fmt` | `pk_fmt: :json` | peaks format |
-| `dl` | `dl: "piece.mp3"` | download filename |
-| `cb` | `cb: "v2"` | cache buster |
+| Key | Alias | Example | Meaning |
+| --- | --- | --- | --- |
+| `f` | `format` | `f: :opus` | output format |
+| `br` | `bitrate` | `br: 96` | bitrate (kbps) |
+| `q` | `quality` | `q: 5` | quality, for codecs that take one instead of a bitrate |
+| `sr` | `sample_rate` | `sr: 44100` | sample rate |
+| `ch` | `channels` | `ch: 1` | channel count |
+| `bd` | `bit_depth` | `bd: 24` | bit depth |
+| `t` | `trim` | `t: [12.5, 30]` | trim: start, optional duration |
+| `fade` | `fade` | `fade: [1, 2]` | fade in, optional fade out |
+| `gain` | `gain` | `gain: -2.5` | gain adjustment (dB) |
+| `norm` | `normalize` | `norm: [:ebu, -16, -1.5, 11]` | loudness normalization: mode, then I, TP, LRA |
+| `pts` | `peak_count` | `pts: 800` | peak points, for waveform output |
+| `pk_fmt` | `peak_format` | `pk_fmt: :json` | peaks format |
+| `dl` | `download` | `dl: "piece.mp3"` | download filename |
+| `cb` | `cache_buster` | `cb: "v2"` | cache buster |
 
 Segments render in the order you write the keywords. The gem does not sort them and does not materialize defaults; that is the proxy's normalization, and a half-normalization here would only invent a third spelling. If you want URLs to stay stable across a codebase, keep the argument order stable.
 
 `t`, `fade` and `norm` take colon-separated parts, so they take arrays: `t: [12.5, 30]` renders `t:12.5:30`. A single part can be written as a scalar: `t: 12.5` renders `t:12.5`. Symbols and strings render alike, so `f: :opus` and `f: "opus"` are the same URL.
 
-An unrecognized key (`bt: 96`) raises `ArgumentError` listing the keys that exist. So does a value carrying a character that would break the path: the gem supplies the `/` and `:` separators, so a value containing one would invent a segment or a part, and a `?` or `#` would end the path in a browser, leaving the proxy with less than what was signed (a 403, at request time, nowhere near the call). Whitespace is rejected for the same reason, which means a `dl:` filename with spaces has to be pre-encoded by you; the gem will not invent an encoding, because that would change the bytes it signs.
+An unrecognized key (`bt: 96`, or a guessed alias like `bit_rate: 96`) raises `ArgumentError` listing the keys that exist and noting that each is also accepted spelled out. So does a value carrying a character that would break the path: the gem supplies the `/` and `:` separators, so a value containing one would invent a segment or a part, and a `?` or `#` would end the path in a browser, leaving the proxy with less than what was signed (a 403, at request time, nowhere near the call). Whitespace is rejected for the same reason, which means a `dl:` filename with spaces has to be pre-encoded by you; the gem will not invent an encoding, because that would change the bytes it signs.
 
 Value *domains* are not checked: `br: 999999` renders, and the proxy rejects it with a structured 422. Duplicating the proxy's validation rules here would mean two rule sets drifting apart, with a stale client rejecting URLs a newer proxy accepts.
+
+### Both spellings work
+
+Every key has the spelled-out alias in the table above, for call sites that would rather read than decode:
+
+```ruby
+Audioproxy.url_for(source, format: :opus, bitrate: 96, sample_rate: 44100)
+# => ".../f:opus/br:96/sr:44100/enc/..."
+```
+
+An alias resolves to its canonical key before anything is rendered, so the two spellings produce byte-identical URLs and the same cache key. `fade` and `gain` are already words and are their own alias.
+
+The short keys stay first-class rather than becoming a legacy spelling: they are the proxy's own vocabulary, they are what a `raw:` string contains, and they are what the proxy's own error messages name. Mixing the two in one call (`format: :opus, br: 96`) is fine; the gem renders it correctly, and house style is a linting matter.
+
+Giving *both* spellings of one option in a single call raises `ArgumentError` naming both, rather than letting one silently win:
+
+```ruby
+Audioproxy.url_for(source, bitrate: 96, br: 128)
+# ArgumentError: Audioproxy option br was given twice, as bitrate and br
+```
+
+Aliases work in `config.default_options` too, where the same conflict is rejected at assignment, so it fails at boot rather than in a mailer. Resolution happens before the defaults merge, so a default of `bitrate: 96` and a per-call `br: 128` are one key that overrides (`br:128`, in the default's position), not two bitrate segments.
+
+### Seconds can be written as durations
+
+`t` and `fade` are the two keys whose values *are* seconds, so they accept an `ActiveSupport::Duration`:
+
+```ruby
+Audioproxy.url_for(source, t: 30.seconds)                   # => ".../t:30/..."
+Audioproxy.url_for(source, trim: [12.5, 1.minute])          # => ".../t:12.5:60/..."
+Audioproxy.url_for(source, fade: [1.5.seconds, 2.seconds])  # => ".../fade:1.5:2/..."
+```
+
+A duration renders exactly as the number of seconds it stands for, so `t: 30.seconds` and `t: 30` are one URL and one cache key. A duration anywhere else raises: `br: 3.seconds` is a bug, and rendering `br:3` from it would be a valid-looking URL for the wrong variant.
 
 ### Numbers have one canonical spelling
 

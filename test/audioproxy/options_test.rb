@@ -47,6 +47,70 @@ class Audioproxy::OptionsTest < ActiveSupport::TestCase
     assert_match(/pk_fmt/, error.message)
   end
 
+  # --- spelled-out aliases -------------------------------------------------
+
+  test "the alias table is total over the key table" do
+    assert_equal Options::KEYS.sort, Options::ALIASES.keys.sort
+    assert_equal Options::ALIASES.size, Options::ALIASES.values.uniq.size
+  end
+
+  # The names the proxy's own Options struct uses, where it has one. A drift
+  # here is a second vocabulary for the proxy's concepts, which is the one way
+  # this table can do lasting damage (D2).
+  test "the aliases are the names the proxy publishes" do
+    assert_equal(
+      {
+        f: :format, br: :bitrate, q: :quality, sr: :sample_rate, ch: :channels,
+        bd: :bit_depth, t: :trim, fade: :fade, gain: :gain, norm: :normalize,
+        pts: :peak_count, pk_fmt: :peak_format, dl: :download, cb: :cache_buster
+      },
+      Options::ALIASES
+    )
+  end
+
+  KEY_EXAMPLES.each do |key, (value, expected)|
+    test "the #{Options::ALIASES[key]} alias renders as #{expected}" do
+      assert_equal expected, Options.segment(Options::ALIASES[key], value)
+    end
+  end
+
+  test "an alias is accepted as a String too" do
+    assert_equal "br:96", Options.segment("bitrate", 96)
+  end
+
+  test "aliases and canonical keys mix in one call" do
+    assert_equal "f:opus/br:96", Options.render({ format: :opus, br: 96 })
+  end
+
+  test "an aliased key keeps its position rather than moving" do
+    assert_equal "t:30/f:opus/br:96", Options.render({ trim: 30, f: :opus, bitrate: 96 })
+  end
+
+  test "multi-part options keep their array form under an alias" do
+    assert_equal "norm:ebu:-16:-1.5:11", Options.segment(:normalize, [ :ebu, -16, -1.5, 11 ])
+    assert_equal "t:12.5:30", Options.segment(:trim, [ 12.5, 30 ])
+  end
+
+  test "both spellings of one option raise, naming both" do
+    error = assert_raises(ArgumentError) { Options.render({ bitrate: 96, br: 128 }) }
+
+    assert_match(/bitrate/, error.message)
+    assert_match(/br/, error.message)
+  end
+
+  test "a near-miss alias still raises, and the message names both vocabularies" do
+    error = assert_raises(ArgumentError) { Options.segment(:bit_rate, 96) }
+
+    assert_match(/bit_rate/, error.message)
+    assert_match(/pk_fmt/, error.message)
+    assert_match(/alias/, error.message)
+  end
+
+  test "resolve rewrites onto canonical keys and leaves the rest alone" do
+    assert_equal({ f: :opus, br: 96, t: 30 }, Options.resolve({ format: :opus, br: 96, trim: 30 }))
+    assert_equal({ raw: "f:opus" }, Options.resolve({ raw: "f:opus" }))
+  end
+
   test "symbols and strings render alike" do
     assert_equal Options.segment(:f, :opus), Options.segment(:f, "opus")
   end
@@ -136,6 +200,58 @@ class Audioproxy::OptionsTest < ActiveSupport::TestCase
 
   test "a nil value raises rather than being dropped" do
     assert_raises(ArgumentError) { Options.segment(:br, nil) }
+  end
+
+  # --- durations on the time-valued keys -----------------------------------
+
+  test "a duration renders as its number of seconds" do
+    assert_equal "t:30", Options.segment(:t, 30.seconds)
+    assert_equal "t:60", Options.segment(:t, 1.minute)
+  end
+
+  test "durations inside a multi-part value" do
+    assert_equal "fade:1.5:2", Options.segment(:fade, [ 1.5.seconds, 2.seconds ])
+  end
+
+  test "durations and numbers mix in one array" do
+    assert_equal "t:12.5:60", Options.segment(:t, [ 12.5, 1.minute ])
+  end
+
+  # 0.3.seconds is the case that decides how a Duration is unwrapped: #to_r
+  # gives the double's true value, which the three-decimal cap rejects, while
+  # the identical t: 0.3 renders (D6).
+  test "sub-second durations render like the numbers they wrap" do
+    assert_equal "t:0.5", Options.segment(:t, 0.5.seconds)
+    assert_equal "t:0.3", Options.segment(:t, 0.3.seconds)
+    assert_equal "t:0.001", Options.segment(:t, 0.001.seconds)
+    assert_equal Options.segment(:t, 0.3), Options.segment(:t, 0.3.seconds)
+  end
+
+  test "a duration needing more than three decimals raises, as the number does" do
+    assert_raises(ArgumentError) { Options.segment(:t, 0.1234.seconds) }
+  end
+
+  test "a duration on a key whose value is not seconds raises rather than rendering" do
+    error = assert_raises(ArgumentError) { Options.segment(:br, 3.seconds) }
+
+    assert_match(/duration/, error.message)
+    assert_match(/t, fade/, error.message)
+  end
+
+  test "a duration on an opaque key raises too" do
+    assert_raises(ArgumentError) { Options.segment(:cb, 3.seconds) }
+    assert_raises(ArgumentError) { Options.segment(:dl, 3.seconds) }
+  end
+
+  test "durations reach the time keys under their aliases too" do
+    assert_equal "t:30", Options.segment(:trim, 30.seconds)
+  end
+
+  # Calendar-variable units resolve through Duration's own average-seconds
+  # definition rather than a rule invented here. Absurd as a trim, and nothing
+  # stops them — the same stance the gem takes on br: 999999.
+  test "calendar durations render through Duration's own definition" do
+    assert_equal "t:#{1.month.value}", Options.segment(:t, 1.month)
   end
 
   # --- rendering a whole segment string ------------------------------------

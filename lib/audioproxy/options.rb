@@ -1,3 +1,5 @@
+require "active_support/duration"
+
 module Audioproxy
   # Renders the proxy's option grammar: +/+-separated +key:value+ segments,
   # with colon-separated parts for the multi-part keys.
@@ -12,9 +14,43 @@ module Audioproxy
     # The proxy's fourteen option keys, canonical short spellings.
     KEYS = %i[bd br cb ch dl f fade gain norm pk_fmt pts q sr t].freeze
 
+    # A spelled-out spelling for each canonical key, for call sites that would
+    # rather read than decode. Total over KEYS, so "does this key have an alias"
+    # never has two answers: +fade+ and +gain+ are already words and alias to
+    # themselves. The names are the proxy's own where it has one — its Options
+    # struct calls pts +peak_count+ and pk_fmt +peak_format+ — so this is one
+    # vocabulary spelled twice, not a second vocabulary (D2).
+    ALIASES = {
+      f: :format,
+      br: :bitrate,
+      q: :quality,
+      sr: :sample_rate,
+      ch: :channels,
+      bd: :bit_depth,
+      t: :trim,
+      fade: :fade,
+      gain: :gain,
+      norm: :normalize,
+      pts: :peak_count,
+      pk_fmt: :peak_format,
+      dl: :download,
+      cb: :cache_buster
+    }.freeze
+
+    # Every accepted spelling to the canonical key it renders as. Canonical
+    # keys map to themselves, so resolution is one lookup rather than a
+    # conditional.
+    CANONICAL = ALIASES.each_with_object({}) { |(key, spelled), table| table[spelled] = key }
+      .merge(KEYS.to_h { |key| [ key, key ] })
+      .freeze
+
     # Keys whose grammar takes colon-separated parts: +t:START[:DURATION]+,
     # +fade:IN[:OUT]+, +norm:ebu[:I[:TP[:LRA]]]+.
     MULTI_PART_KEYS = %i[t fade norm].freeze
+
+    # Keys whose values *are* a number of seconds, and so may be written as an
+    # ActiveSupport::Duration (D6).
+    TIME_KEYS = %i[t fade].freeze
 
     # Keys the proxy treats as opaque payloads (download filename, cache
     # buster), rendered verbatim rather than number-formatted.
@@ -35,14 +71,41 @@ module Audioproxy
       # Renders an ordered key => value Hash into an options segment. Caller
       # order is preserved (D4); normalization is the proxy's business.
       def render(options)
-        options.map { |key, value| segment(key, value) }.join("/")
+        resolve(options).map { |key, value| segment(key, value) }.join("/")
       end
 
-      # Renders one +key:value+ segment.
+      # Rewrites a key => value Hash onto the canonical short keys, so that
+      # everything downstream — rendering, ordering, the defaults merge — sees
+      # one vocabulary and is unaware aliases exist (D1). Insertion order is
+      # preserved, so an aliased key keeps its slot. Unrecognized keys pass
+      # through untouched, to be reported by +segment+ against the key table
+      # rather than by a second, thinner error here.
+      def resolve(options)
+        spellings = {}
+
+        options.each_with_object({}) do |(key, value), resolved|
+          canonical = CANONICAL.fetch(symbolize(key), key)
+
+          # Ruby's keyword collection keeps both spellings, and picking a winner
+          # by position would make the URL depend on argument order in a way
+          # nothing else here does (D4).
+          if (first = spellings[canonical])
+            raise ArgumentError,
+              "Audioproxy option #{canonical} was given twice, as #{first} and #{key}; " \
+              "each option takes one spelling per call"
+          end
+          spellings[canonical] = key
+
+          resolved[canonical] = value
+        end
+      end
+
+      # Renders one +key:value+ segment. The key may be canonical or an alias.
       def segment(key, value)
-        key = symbolize(key)
-        unless KEYS.include?(key)
-          raise ArgumentError, "unknown Audioproxy option #{key.inspect}; known keys are #{KEYS.join(", ")}"
+        key = CANONICAL.fetch(symbolize(key)) do |unknown|
+          raise ArgumentError,
+            "unknown Audioproxy option #{unknown.inspect}; known keys are #{KEYS.join(", ")}, " \
+            "each also accepted as its spelled-out alias (#{ALIASES[:br]}, #{ALIASES[:sr]}, #{ALIASES[:pk_fmt]}, …)"
         end
 
         "#{key}:#{render_value(key, value)}"
@@ -114,6 +177,12 @@ module Audioproxy
         # dl: and cb: are opaque to the proxy, so they are opaque here too: a
         # filename or cache buster is whatever the caller wrote.
         def render_part(key, value)
+          # An explicit clause, because +case value when Numeric+ does not match
+          # a Duration: it overrides is_a? to answer true for Numeric, but
+          # Module#=== performs the real type check and ignores the override.
+          # Without this, t: 30.seconds is rejected as "not a number" by
+          # something that says it is one.
+          return render_duration(key, value) if value.is_a?(ActiveSupport::Duration)
           return format_number(value) unless OPAQUE_KEYS.include?(key)
 
           case value
@@ -122,6 +191,26 @@ module Audioproxy
           else
             raise ArgumentError, "Audioproxy option #{key}: must be a String, Symbol or number, got #{value.class}"
           end
+        end
+
+        # A Duration is the Rails spelling of a number of seconds, so it is
+        # accepted where the value *is* seconds and refused everywhere else:
+        # br: 3.seconds rendering br:3 would be a valid-looking URL for the
+        # wrong variant, which is the failure this gem exists to prevent (D6).
+        def render_duration(key, value)
+          unless TIME_KEYS.include?(key)
+            raise ArgumentError,
+              "Audioproxy option #{key}: does not take a duration, got #{value.inspect}; " \
+              "only #{TIME_KEYS.join(", ")} take an ActiveSupport::Duration, because only their values are seconds"
+          end
+
+          # #value is the number the caller wrote (30 for 30.seconds, 0.3 for
+          # 0.3.seconds, 60 for 1.minute), so it goes through exactly the
+          # formatting that number would and renders the same bytes. #to_r is
+          # the wrong door: for 0.3.seconds it yields the double's true value,
+          # which the three-decimal cap then rejects, while a plain t: 0.3
+          # renders — Float goes through Rational(value.to_s) for that reason.
+          format_number(value.value)
         end
 
         # Rendering is exact integer arithmetic on the value's decimal form.

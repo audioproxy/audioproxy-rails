@@ -141,9 +141,24 @@ class Audioproxy::ConfigTest < ActiveSupport::TestCase
   end
 
   test "default_options rejects unsupported keys so a typo cannot be dropped" do
-    error = assert_raises(ArgumentError) { @config.default_options = { format: "opus" } }
+    error = assert_raises(ArgumentError) { @config.default_options = { bit_rate: 96 } }
 
-    assert_match(/format/, error.message)
+    assert_match(/bit_rate/, error.message)
+  end
+
+  # Canonical at assignment is what makes an aliased default and a canonical
+  # per-call key one key in the merge rather than two segments (D3).
+  test "default_options aliases are normalized to canonical keys" do
+    @config.default_options = { bitrate: 96, "sample_rate" => 44100 }
+
+    assert_equal({ br: 96, sr: 44100 }, @config.default_options)
+  end
+
+  test "default_options rejects both spellings of one option at assignment" do
+    error = assert_raises(ArgumentError) { @config.default_options = { bitrate: 96, br: 128 } }
+
+    assert_match(/bitrate/, error.message)
+    assert_match(/br/, error.message)
   end
 
   test "default_options rejects keys that are neither String nor Symbol" do

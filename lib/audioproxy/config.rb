@@ -14,10 +14,11 @@ module Audioproxy
   class Config
     HEX = /\A(?:\h\h)+\z/
 
-    # Option keys defaults may carry: the proxy's typed short keys, plus the
-    # pre-rendered +raw:+ escape hatch. An unrecognized key is a typo, and a
-    # typo that is silently dropped emits a valid URL for the wrong variant.
-    OPTION_KEYS = ([ :raw ] + Options::KEYS).freeze
+    # Option keys defaults may carry: the proxy's typed short keys and their
+    # spelled-out aliases, plus the pre-rendered +raw:+ escape hatch. An
+    # unrecognized key is a typo, and a typo that is silently dropped emits a
+    # valid URL for the wrong variant.
+    OPTION_KEYS = ([ :raw ] + Options::KEYS + Options::ALIASES.values).uniq.freeze
 
     attr_reader :endpoint, :key, :salt, :default_options
     attr_accessor :unsigned
@@ -38,7 +39,9 @@ module Audioproxy
     end
 
     # Options applied to every URL unless overridden per call. Keys may be given
-    # as strings or symbols; they are normalized to symbols.
+    # as strings or symbols, canonical or spelled-out; they are normalized to
+    # canonical symbols here, which is what makes an aliased default and a
+    # canonical per-call key one key in the merge rather than two segments (D3).
     def default_options=(value)
       @default_options = normalize_default_options(value)
     end
@@ -114,7 +117,7 @@ module Audioproxy
         end
 
         normalized = value.symbolize_keys
-        # Raises ArgumentError: "Unknown key: :format. Valid keys are: :raw, :bd, …"
+        # Raises ArgumentError: "Unknown key: :bit_rate. Valid keys are: :raw, :bd, …"
         normalized.assert_valid_keys(*OPTION_KEYS)
 
         # Two sources of truth for one segment string is ambiguity, not
@@ -125,7 +128,9 @@ module Audioproxy
             "(got raw: and #{(normalized.keys - [ :raw ]).join(", ")})"
         end
 
-        normalized
+        # Both spellings of one option is the same ambiguity, and assignment
+        # time is where it should fail: at boot, not in a mailer.
+        Options.resolve(normalized)
       end
   end
 end
