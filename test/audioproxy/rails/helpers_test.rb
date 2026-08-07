@@ -194,6 +194,153 @@ class Audioproxy::Rails::HelpersTest < ActionView::TestCase
     assert_raises(Audioproxy::UnattachedError) { view.audioproxy_url(Recording.new.audio) }
   end
 
+  # --- audioproxy_preload_link_tag -----------------------------------------
+
+  test "audioproxy_preload_link_tag renders a preload link around the proxy URL" do
+    tag = view.audioproxy_preload_link_tag(SOURCE, raw: "f:opus")
+
+    assert_includes tag, %(rel="preload")
+    assert_includes tag, %(href="#{Audioproxy.url_for(SOURCE, raw: "f:opus")}")
+  end
+
+  # ActionView reads `as` off the source's extension, and the encoded source
+  # segment never has one, so an unsupplied `as` is not a default but a bug.
+  test "the preload hint declares an audio destination" do
+    assert_includes view.audioproxy_preload_link_tag(SOURCE), %(as="audio")
+  end
+
+  test "html: as overrides the audio destination exactly once" do
+    tag = view.audioproxy_preload_link_tag(SOURCE, html: { as: "fetch" })
+
+    assert_includes tag, %(as="fetch")
+    refute_includes tag, %(as="audio")
+    assert_equal 1, tag.scan(/ as=/).size
+  end
+
+  # A string key has to win too, or it renders alongside the symbol default.
+  test "a string as key overrides the audio destination" do
+    tag = view.audioproxy_preload_link_tag(SOURCE, html: { "as" => "fetch" })
+
+    assert_includes tag, %(as="fetch")
+    assert_equal 1, tag.scan(/ as=/).size
+  end
+
+  # nil, false and "" all reach ActionView's extension inference, which has no
+  # extension to read, and the attribute is dropped or emitted empty. Either way
+  # the tag looks like a preload and does nothing, so it raises instead.
+  test "a blank as is refused rather than emitted" do
+    [ nil, false, "" ].each do |blank|
+      error = assert_raises(ArgumentError) { view.audioproxy_preload_link_tag(SOURCE, html: { as: blank }) }
+
+      assert_match(/must name a fetch destination/, error.message)
+    end
+  end
+
+  test "a blank string as key is refused too" do
+    assert_raises(ArgumentError) { view.audioproxy_preload_link_tag(SOURCE, html: { "as" => nil }) }
+  end
+
+  # ActionView renders this one as "anonymous" and audio_tag renders it as
+  # "true", so the pair would disagree and the browser would fetch twice.
+  test "crossorigin: true is refused because the two helpers render it differently" do
+    error = assert_raises(ArgumentError) { view.audioproxy_preload_link_tag(SOURCE, html: { crossorigin: true }) }
+
+    assert_match(/crossorigin: must be a String/, error.message)
+    assert_includes view.audioproxy_audio_tag(SOURCE, html: { crossorigin: true }), %(crossorigin="true")
+  end
+
+  test "an explicit crossorigin string renders the same on both helpers" do
+    assert_includes view.audioproxy_preload_link_tag(SOURCE, html: { crossorigin: "anonymous" }),
+      %(crossorigin="anonymous")
+    assert_includes view.audioproxy_audio_tag(SOURCE, html: { crossorigin: "anonymous" }),
+      %(crossorigin="anonymous")
+  end
+
+  # Not a supported combination — as: "font" on an audio URL is a caller error —
+  # but ActionView injects crossorigin for it, so the helper's "no crossorigin"
+  # rule has this one documented exception. Pinned so it stays deliberate.
+  test "as: font reaches ActionView's implicit crossorigin" do
+    assert_includes view.audioproxy_preload_link_tag(SOURCE, html: { as: "font" }),
+      %(crossorigin="anonymous")
+  end
+
+  # Matching audioproxy_audio_tag, which sets none: a preload whose crossorigin
+  # disagrees with the element consuming it fetches the variant twice.
+  test "no crossorigin unless asked for" do
+    refute_includes view.audioproxy_preload_link_tag(SOURCE), "crossorigin"
+    assert_includes view.audioproxy_preload_link_tag(SOURCE, html: { crossorigin: "anonymous" }),
+      %(crossorigin="anonymous")
+  end
+
+  test "html: attributes become link attributes" do
+    tag = view.audioproxy_preload_link_tag(SOURCE, html: { fetchpriority: "high" })
+
+    assert_includes tag, %(fetchpriority="high")
+    assert_includes tag, %(href="#{Audioproxy.url_for(SOURCE)}")
+  end
+
+  test "proxy options never appear as link attributes" do
+    tag = view.audioproxy_preload_link_tag(SOURCE, raw: "f:opus")
+
+    refute_includes tag, "raw="
+  end
+
+  test "an unknown proxy option raises instead of becoming a link attribute" do
+    error = assert_raises(ArgumentError) { view.audioproxy_preload_link_tag(SOURCE, bitrat: 96) }
+
+    assert_match(/unknown Audioproxy option/, error.message)
+  end
+
+  test "preload html: must be a Hash" do
+    error = assert_raises(ArgumentError) { view.audioproxy_preload_link_tag(SOURCE, html: "audio") }
+
+    assert_match(/html: must be a Hash/, error.message)
+  end
+
+  test "an attachment reaches the preload helper as its resolved source" do
+    recording = attached_recording
+
+    assert_includes view.audioproxy_preload_link_tag(recording.audio, format: "opus"),
+      %(href="#{Audioproxy.url_for("local://#{disk_path_for(recording)}", format: "opus")}")
+  end
+
+  test "a blob reaches the preload helper as its resolved source" do
+    recording = attached_recording
+
+    assert_includes view.audioproxy_preload_link_tag(recording.audio.blob, format: "opus"),
+      %(href="#{Audioproxy.url_for("local://#{disk_path_for(recording)}", format: "opus")}")
+  end
+
+  # The hint and the element must name one variant. A differing byte is a
+  # different cache key and a preload the browser never matches to the tag.
+  #
+  # Both helpers run their URL through path_to_asset, so comparing them only to
+  # each other would pass just as happily if that rewrote the URL — identically,
+  # for both. Audioproxy.url_for is the third point that makes it non-circular.
+  test "the preload href is byte-identical to the audio tag's src" do
+    options = { format: "opus", bitrate: 96 }
+    href = view.audioproxy_preload_link_tag(SOURCE, **options)[/href="([^"]+)"/, 1]
+    src = view.audioproxy_audio_tag(SOURCE, **options)[/src="([^"]+)"/, 1]
+
+    assert_equal src, href
+    assert_equal Audioproxy.url_for(SOURCE, **options), href
+  end
+
+  # path_to_asset is asset-pipeline machinery. It should hand an absolute URL
+  # back untouched, but a rewritten path is a bad signature, so both tag helpers
+  # are asserted against audioproxy_url rather than only against each other.
+  test "an endpoint path prefix survives both tag helpers" do
+    previous = Audioproxy.config.endpoint
+    Audioproxy.config.endpoint = "https://cdn.example.com/audio"
+
+    assert_equal Audioproxy.url_for(SOURCE, format: "opus"),
+      view.audioproxy_preload_link_tag(SOURCE, format: "opus")[/href="([^"]+)"/, 1]
+    assert_equal Audioproxy.url_for(SOURCE, format: "opus"),
+      view.audioproxy_audio_tag(SOURCE, format: "opus")[/src="([^"]+)"/, 1]
+  ensure
+    Audioproxy.config.endpoint = previous
+  end
+
   private
     # Asked of the real DiskService, not restated from the layout rule. Written
     # out longhand here once, this said "#{key[0..1]}/#{key[2..3]}/#{key}" — the
