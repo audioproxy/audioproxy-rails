@@ -10,7 +10,7 @@ Full Rails is a development dependency only. `require "audioproxy"` works in a p
 
 ## Status
 
-Core signing and typed options work, in both the proxy's short spellings and their aliases, as do the Railtie's credentials/ENV wiring, the view helpers, and ActiveStorage resolution for the S3 and Disk services. Blobs on any other service raise; see [ActiveStorage](#activestorage) for what to do about that.
+Core signing and typed options work, in both the proxy's short spellings and their aliases, as do the Railtie's credentials/ENV wiring, the view helpers — URL, `<audio>` tag and preload hint — and ActiveStorage resolution for the S3 and Disk services. Blobs on any other service raise; see [ActiveStorage](#activestorage) for what to do about that.
 
 ## Installation
 
@@ -281,6 +281,34 @@ Nothing is validated at boot. An app with no credentials and no ENV boots fine �
 ```
 
 The `html:` bucket is not ceremony. Without it, proxy option names and HTML attribute names would share one namespace, and the gem would have to guess which one you meant for any key it did not recognize — so a mistyped `bitrat: 96` would land silently on the `<audio>` element as an attribute and quietly ship the default format instead. With the bucket, the two never mix in either direction: an unknown proxy option raises, and an `html:` entry never reaches the proxy. Proxy options never appear as tag attributes.
+
+#### Preloading a variant
+
+`audioproxy_preload_link_tag` emits a resource hint for a variant you are about to play. Because the first request for a variant is a render, the hint overlaps that render with page load rather than leaving someone waiting for it after a click:
+
+```erb
+<% opus = { format: "opus", bitrate: 96 } %>
+
+<% content_for :head do %>
+  <%= audioproxy_preload_link_tag @track.audio, **opus, html: { fetchpriority: "high" } %>
+<% end %>
+
+<%= audioproxy_audio_tag @track.audio, **opus, html: { controls: true } %>
+```
+
+```html
+<link rel="preload" href="https://audio.example.com/zfLTfPPh…/f:opus/br:96/enc/…" as="audio" fetchpriority="high">
+```
+
+The shared local is the point. The hint and the element have to name the same variant, byte for byte: one differing option is a different URL, a different cache key, and a preload the browser never matches to the `<audio>` element that needed it. Writing the options out twice is how that goes wrong.
+
+`as="audio"` is supplied for you. Rails infers `as` from a file extension, and a proxy URL ends in an encoded source segment that has none, so the inference cannot work here — and a `rel=preload` carrying no `as` has no fetch destination, which browsers decline to act on. Pass `html: { as: … }` if you need something else.
+
+Three things worth knowing before reaching for it:
+
+- **It fetches the whole variant.** On a cache miss the proxy answers chunked with no `Accept-Ranges`, so there is no partial preload to be had. This is a hint for the track that is about to play, not for a list of forty.
+- **`crossorigin` must match the element.** Neither helper sets one, so by default they agree. If you add `crossorigin` to the `<audio>` tag, add the same value here, or the browser treats them as two different requests and downloads the variant twice.
+- **Rails also emits a `Link` header** for every preload when `config.action_view.preload_links_header` is on — another reason to preload one track rather than a page of them.
 
 ### ActiveStorage
 
