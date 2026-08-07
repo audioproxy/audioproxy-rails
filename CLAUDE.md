@@ -60,23 +60,73 @@ bin/rubocop   # rubocop-rails-omakase
 
 Both must be green, and `openspec validate <change-name>` must pass, before a change is archived.
 
+
 ## Code review
 
-Before archiving a change, get a second opinion from a reviewer that did not write the code —
-another person, or a different model than the one that implemented it. Same-model self-review
-collapses the value of the exercise.
+Before a change is archived it must be reviewed by someone — or something — that did not write it.
+Same-model self-review collapses the exercise: a model reviewing its own work mostly re-derives its
+own reasoning and reports the agreement as confirmation.
 
-What has actually paid off here, in rough order of value:
+**For outside contributions this is the maintainer's step.** Open a pull request as normal; nothing
+here asks a contributor to install or pay for a review tool. When an agent implements a change
+end-to-end in this repo, it runs the review itself before archiving.
 
-- **Give the reviewer the spec, not just the diff.** Correctness in this repo is defined by
-  `design.md` and `specs/**`, so a reviewer working from the diff alone can only offer taste.
+### What the reviewer has to be
+
+Any tool or person meeting these. No particular CLI is required, and none is assumed to be
+installed:
+
+- **A different model from the one that wrote the code**, or a human. This is the whole point; an
+  in-session self-review or a subagent on the same model is not a substitute.
+- **Able to read the repository**, the specs above all.
+- **Unable to write to it.** Sandbox it read-only where the tool allows, and commit before the run
+  so `git status --short` afterwards proves it mutated nothing.
+- **Made to return its findings as its final message.** Reasoning models otherwise spend the last
+  turn thinking and return nothing — a clean exit with an empty answer is a distinct failure, not a
+  clean review.
+
+### The brief
+
+Correctness here is defined by `design.md` and `specs/**`, so what you hand the reviewer decides
+what you get back. In rough order of what has paid off:
+
+- **Give the reviewer the spec, not just the diff.** A reviewer working from the diff alone can only
+  offer taste.
 - **Order the review by failure mode, not by category.** Byte-correctness first, then inputs that
   produce a plausible-but-wrong URL instead of an error. That second category is where the real
   defects have been.
+- **Point it at your own amendments.** If implementation amended a numbered decision, say so and ask
+  it to verify the claim from primary sources rather than take the amendment on trust. This is where
+  outside review has been worth the most.
 - **Name the deferred slices as out of scope**, or you get their absence reported as a gap.
-- **Reconcile against your own review rather than adopting the verdict.** Findings have gone both
-  ways: an outside reviewer caught a silently-dropped config shape that was going to ship, and also
-  filed a confident finding resting on a false premise about the standard library. Verify every
-  claim against the code before acting on it, and record the ones you reject along with why.
-- **Ask for severity labels and file:line citations**, and require the findings as the final
-  message: reasoning models otherwise spend the last turn thinking and return nothing.
+- **State the hard rules** — the extraction seam, no new runtime dependencies, this layer renders
+  rather than validates — so the reviewer does not spend its budget fighting them.
+- **Ask for severity labels, `file:line` citations, and a concrete failure case per finding.** A
+  finding without a reproducible failure case is worth less than no finding.
+
+### Reconciling
+
+Write your own review *before* reading the reviewer's, then build a table: Issue | Self-review |
+Reviewer | Agreement.
+
+**Reconcile rather than adopt the verdict.** Findings have gone both ways. Outside reviewers have
+caught a silently-dropped config shape that was going to ship, a byte-stability matrix missing its
+most-used key, and a permissive branch that was safe for three settings and unsafe for the fourth.
+They have also filed confident findings resting on false premises — one about the standard library,
+one asserting exact parity with a Go function the code only approximates. Verify every claim against
+the code before acting on it, reproduce the failure case in a real process where you can, and record
+the ones you reject along with why.
+
+Expect little overlap, and expect the severity labels to need re-grading. On one change, four
+defects came from three different places — the author's own review, the outside reviewer, and an
+audit of the outside reviewer's reasoning — with none found twice; the reviewer's single finding was
+graded HIGH and reproducing all its branches showed it was real but fail-safe.
+
+**Never act on a finding without approval.** The reviewer is a signal generator, not a judge. The
+improved code is the deliverable, not the review log.
+
+**A clean review is not a clean change.** The brief decides what gets looked at, so whatever it does
+not name stays unexamined, and a SHIP verdict says nothing about it. After two reviews both returned
+SHIP on one change, an offhand question about an interaction neither brief mentioned turned up an
+untested case immediately. When the reviews come back clean, the useful next move is to ask what the
+brief left out, not to treat the verdict as coverage.
