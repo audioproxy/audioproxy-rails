@@ -289,6 +289,7 @@ The `html:` bucket is not ceremony. Without it, proxy option names and HTML attr
 ```erb
 <% opus = { format: "opus", bitrate: 96 } %>
 
+<%# in a layout that yields :head, or wherever your <head> content goes %>
 <% content_for :head do %>
   <%= audioproxy_preload_link_tag @track.audio, **opus, html: { fetchpriority: "high" } %>
 <% end %>
@@ -302,12 +303,12 @@ The `html:` bucket is not ceremony. Without it, proxy option names and HTML attr
 
 The shared local is the point. The hint and the element have to name the same variant, byte for byte: one differing option is a different URL, a different cache key, and a preload the browser never matches to the `<audio>` element that needed it. Writing the options out twice is how that goes wrong.
 
-`as="audio"` is supplied for you. Rails infers `as` from a file extension, and a proxy URL ends in an encoded source segment that has none, so the inference cannot work here — and a `rel=preload` carrying no `as` has no fetch destination, which browsers decline to act on. Pass `html: { as: … }` if you need something else.
+`as="audio"` is supplied for you. Rails infers `as` from a file extension, and a proxy URL ends in an encoded source segment that has none, so the inference cannot work here — and a `rel=preload` carrying no `as` has no fetch destination, which browsers decline to act on. Pass `html: { as: … }` if you need something else; a blank one (`nil`, `false`, `""`) raises rather than quietly producing that inert tag.
 
 Three things worth knowing before reaching for it:
 
 - **It fetches the whole variant.** On a cache miss the proxy answers chunked with no `Accept-Ranges`, so there is no partial preload to be had. This is a hint for the track that is about to play, not for a list of forty.
-- **`crossorigin` must match the element.** Neither helper sets one, so by default they agree. If you add `crossorigin` to the `<audio>` tag, add the same value here, or the browser treats them as two different requests and downloads the variant twice.
+- **`crossorigin` must match the element.** Neither helper sets one, so by default they agree. If you add `crossorigin` to the `<audio>` tag, add the same value here, or the browser treats them as two different requests and downloads the variant twice. Write it as a string: Rails renders `crossorigin: true` as `anonymous` on a preload link and as `true` on an `<audio>` tag, so the boolean would produce exactly that mismatch — this helper raises on it rather than letting it through.
 - **Rails also emits a `Link` header** for every preload when `config.action_view.preload_links_header` is on — another reason to preload one track rather than a page of them.
 
 ### ActiveStorage

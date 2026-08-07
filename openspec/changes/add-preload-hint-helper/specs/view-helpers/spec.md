@@ -18,9 +18,11 @@ passing the `html:` hash as the tag options.
 - **THEN** an `ArgumentError` is raised naming the `html:` argument
 
 ### Requirement: Preload hints declare an audio destination
-The emitted tag SHALL carry `as="audio"` unless the caller supplies `as:` in `html:`. A proxy URL
-ends in an encoded source segment with no file extension, so ActionView's extension-based inference
-cannot supply one, and a `rel=preload` without a destination is a tag browsers decline to act on.
+The emitted tag SHALL carry `as="audio"` unless the caller supplies a non-blank `as:` in `html:`. A
+proxy URL ends in an encoded source segment with no file extension, so ActionView's extension-based
+inference cannot supply one, and a `rel=preload` without a destination is a tag browsers decline to
+act on. A blank `as:` — `nil`, `false` or `""` — SHALL raise an `ArgumentError` rather than count as
+an override, because it produces exactly that inert tag.
 
 #### Scenario: Default destination
 - **WHEN** a view calls `audioproxy_preload_link_tag("local://a.wav")`
@@ -30,14 +32,33 @@ cannot supply one, and a `rel=preload` without a destination is a tag browsers d
 - **WHEN** a view calls `audioproxy_preload_link_tag("local://a.wav", html: { as: "fetch" })`
 - **THEN** the emitted tag carries `as="fetch"` and no second `as` attribute
 
-### Requirement: Preload hints set no crossorigin by default
-The helper SHALL NOT emit a `crossorigin` attribute unless the caller supplies one in `html:`,
-matching what `audioproxy_audio_tag` emits. A preload whose `crossorigin` disagrees with the element
-consuming it causes the browser to fetch the variant twice.
+#### Scenario: Blank destination rejected
+- **WHEN** a view calls `audioproxy_preload_link_tag("local://a.wav", html: { as: nil })`, or with `false` or `""`
+- **THEN** an `ArgumentError` is raised and no tag is rendered
+
+### Requirement: Preload hints introduce no crossorigin of their own
+The helper SHALL NOT add a `crossorigin` attribute, matching what `audioproxy_audio_tag` emits, so
+the two agree by default. A preload whose `crossorigin` disagrees with the element consuming it
+causes the browser to fetch the variant twice.
+
+Two caller-supplied values are not defaults and are settled explicitly. `crossorigin: true` SHALL
+raise an `ArgumentError`, because ActionView renders it `"anonymous"` on a preload link and `"true"`
+on an `<audio>` tag, so writing it in both places produces the very mismatch this requirement exists
+to prevent. `as: "font"` reaches ActionView's own rule of adding `crossorigin="anonymous"` to font
+preloads; on an audio URL that is a caller error, and it is left to ActionView rather than guarded
+against here.
 
 #### Scenario: No crossorigin by default
 - **WHEN** a view calls `audioproxy_preload_link_tag("local://a.wav")`
 - **THEN** the emitted tag carries no `crossorigin` attribute
+
+#### Scenario: Boolean crossorigin rejected
+- **WHEN** a view calls `audioproxy_preload_link_tag("local://a.wav", html: { crossorigin: true })`
+- **THEN** an `ArgumentError` is raised naming the two renderings
+
+#### Scenario: An explicit crossorigin string agrees across both helpers
+- **WHEN** a view calls both helpers with `html: { crossorigin: "anonymous" }`
+- **THEN** both emitted tags carry `crossorigin="anonymous"`
 
 ### Requirement: Proxy options never appear as link attributes
 Proxy options passed to the helper SHALL NOT reach the emitted tag, and `html:` entries SHALL NOT

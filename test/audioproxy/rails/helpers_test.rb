@@ -225,6 +225,45 @@ class Audioproxy::Rails::HelpersTest < ActionView::TestCase
     assert_equal 1, tag.scan(/ as=/).size
   end
 
+  # nil, false and "" all reach ActionView's extension inference, which has no
+  # extension to read, and the attribute is dropped or emitted empty. Either way
+  # the tag looks like a preload and does nothing, so it raises instead.
+  test "a blank as is refused rather than emitted" do
+    [ nil, false, "" ].each do |blank|
+      error = assert_raises(ArgumentError) { view.audioproxy_preload_link_tag(SOURCE, html: { as: blank }) }
+
+      assert_match(/must name a fetch destination/, error.message)
+    end
+  end
+
+  test "a blank string as key is refused too" do
+    assert_raises(ArgumentError) { view.audioproxy_preload_link_tag(SOURCE, html: { "as" => nil }) }
+  end
+
+  # ActionView renders this one as "anonymous" and audio_tag renders it as
+  # "true", so the pair would disagree and the browser would fetch twice.
+  test "crossorigin: true is refused because the two helpers render it differently" do
+    error = assert_raises(ArgumentError) { view.audioproxy_preload_link_tag(SOURCE, html: { crossorigin: true }) }
+
+    assert_match(/crossorigin: must be a String/, error.message)
+    assert_includes view.audioproxy_audio_tag(SOURCE, html: { crossorigin: true }), %(crossorigin="true")
+  end
+
+  test "an explicit crossorigin string renders the same on both helpers" do
+    assert_includes view.audioproxy_preload_link_tag(SOURCE, html: { crossorigin: "anonymous" }),
+      %(crossorigin="anonymous")
+    assert_includes view.audioproxy_audio_tag(SOURCE, html: { crossorigin: "anonymous" }),
+      %(crossorigin="anonymous")
+  end
+
+  # Not a supported combination — as: "font" on an audio URL is a caller error —
+  # but ActionView injects crossorigin for it, so the helper's "no crossorigin"
+  # rule has this one documented exception. Pinned so it stays deliberate.
+  test "as: font reaches ActionView's implicit crossorigin" do
+    assert_includes view.audioproxy_preload_link_tag(SOURCE, html: { as: "font" }),
+      %(crossorigin="anonymous")
+  end
+
   # Matching audioproxy_audio_tag, which sets none: a preload whose crossorigin
   # disagrees with the element consuming it fetches the variant twice.
   test "no crossorigin unless asked for" do
@@ -274,12 +313,17 @@ class Audioproxy::Rails::HelpersTest < ActionView::TestCase
 
   # The hint and the element must name one variant. A differing byte is a
   # different cache key and a preload the browser never matches to the tag.
+  #
+  # Both helpers run their URL through path_to_asset, so comparing them only to
+  # each other would pass just as happily if that rewrote the URL — identically,
+  # for both. Audioproxy.url_for is the third point that makes it non-circular.
   test "the preload href is byte-identical to the audio tag's src" do
     options = { format: "opus", bitrate: 96 }
     href = view.audioproxy_preload_link_tag(SOURCE, **options)[/href="([^"]+)"/, 1]
     src = view.audioproxy_audio_tag(SOURCE, **options)[/src="([^"]+)"/, 1]
 
     assert_equal src, href
+    assert_equal Audioproxy.url_for(SOURCE, **options), href
   end
 
   # path_to_asset is asset-pipeline machinery. It should hand an absolute URL

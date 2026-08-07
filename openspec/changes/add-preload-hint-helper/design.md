@@ -69,6 +69,15 @@ asking every call site for it is the difference between a helper and a reminder.
 
 `html: { as: "video" }` overrides it, for a caller who knows better.
 
+**[Amended after review]** A *blank* override — `nil`, `false` or `""` — is not a caller who knows
+better; it is the inert tag this decision exists to prevent, arrived at from the other direction.
+`preload_link_tag` does `options.delete(:as) || resolve_link_as(extname, mime_type)`, so a nil falls
+through to the inference that structurally cannot succeed here, and `tag.link` then drops the
+attribute entirely (`""` renders it empty, which browsers treat the same way). Verified in a real
+process. So a blank `as:` raises rather than being passed through, and the spec requirement is
+narrowed from "unless the caller supplies `as:`" to "unless the caller supplies a non-blank `as:`",
+which is where the original wording was ambiguous.
+
 ### D3 — `crossorigin` is not set, and this is a deliberate default rather than an oversight
 
 A preload and the element that consumes it must agree on `crossorigin`, or the browser treats them
@@ -82,6 +91,23 @@ value here, and the README says so next to both helpers.
 Rejected: defaulting to `crossorigin: "anonymous"` because the proxy is usually a different origin.
 It is the right value only for callers who also set it on the element, and it silently doubles
 bandwidth for everyone else.
+
+**[Amended after review]** Matching *defaults* turned out not to be enough, because the two helpers
+do not render the same *value* the same way. `crossorigin: true` — the ordinary Rails spelling for a
+boolean attribute — renders `crossorigin="anonymous"` through `preload_link_tag` and
+`crossorigin="true"` through `audio_tag`. Verified in a real process. A caller who writes `true` in
+both places, which is exactly what this decision tells them to do, gets the mismatch and the double
+download. So `crossorigin: true` raises here and the message names both renderings; an explicit
+string agrees across both helpers and is what the README shows.
+
+One exception is left unguarded: `as: "font"` triggers ActionView's own
+`crossorigin.blank? && as_type == "font"` rule, so that combination emits an implicit
+`crossorigin="anonymous"` this helper never asked for. On an audio proxy URL `as: "font"` is a
+caller error, and guarding every ActionView special case is not this helper's job — but the spec
+requirement is worded to admit the exception rather than to state an absolute it does not honour,
+and a test pins the behaviour so it stays deliberate.
+
+This was the finding an outside review caught that the author's own review missed.
 
 ### D4 — The `html:` bucket, unchanged
 

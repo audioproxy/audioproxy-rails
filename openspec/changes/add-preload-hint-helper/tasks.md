@@ -28,4 +28,4 @@
 - [x] 4.1 `bin/test` green
 - [x] 4.2 `bin/rubocop` green
 - [x] 4.3 `openspec validate add-preload-hint-helper` passes
-- [ ] 4.4 Outside code review per CLAUDE.md; name the `preconnect` helper and auto-emission from `audioproxy_audio_tag` as out of scope so their absence is not reported as a gap
+- [x] 4.4 Outside code review per CLAUDE.md; name the `preconnect` helper and auto-emission from `audioproxy_audio_tag` as out of scope so their absence is not reported as a gap
