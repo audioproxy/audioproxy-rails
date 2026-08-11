@@ -63,10 +63,15 @@ Where to go from here:
 ```ruby
 Audioproxy.configure do |config|
   config.endpoint = "https://audio.example.com"   # absolute http(s) URL, path prefix allowed
-  config.key      = ENV["AUDIOPROXY_KEY"]         # hex string, decoded at assignment
-  config.salt     = ENV["AUDIOPROXY_SALT"]        # hex string, decoded at assignment
+  config.key      = ENV["AP_KEY"]                 # hex string, decoded at assignment
+  config.salt     = ENV["AP_SALT"]                # hex string, decoded at assignment
 end
 ```
+
+Writing this out is optional. Under Rails the railtie already reads `audioproxy:` from credentials
+and `AP_ENDPOINT`, `AP_KEY`, `AP_SALT` and `AP_ALLOW_INSECURE` from the environment, so an app that
+uses either needs no initializer at all; see [ENV parity with the proxy](#env-parity-with-the-proxy)
+and [Rails](#rails). Configure by hand when you want to override those, or when there is no Rails.
 
 `key` and `salt` are hex strings, validated eagerly: a typo raises `ArgumentError` at boot rather than in a mailer six hours later. The endpoint must be an absolute `http`/`https` URL. A path prefix (`https://cdn.example.com/audio`, for a CDN routing that prefix to the proxy) is supported and does not disturb signing, because the signature covers only the path after the signature segment. Userinfo, a query and a fragment are rejected: a base URL is scheme, host and optional path prefix, and `https://user:pass@host` would put credentials into every URL you generate.
 
