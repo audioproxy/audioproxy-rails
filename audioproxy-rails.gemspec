@@ -12,10 +12,19 @@ Gem::Specification.new do |spec|
 
   spec.required_ruby_version = ">= 3.2.0"
 
-  spec.metadata["homepage_uri"] = spec.homepage
+  # No source_code_uri: it would be the homepage, and RubyGems shows only one of the two.
+  spec.metadata["homepage_uri"]    = spec.homepage
+  spec.metadata["bug_tracker_uri"] = "#{spec.homepage}/issues"
+  spec.metadata["changelog_uri"]   = "#{spec.homepage}/blob/main/CHANGELOG.md"
 
+  # A leaked API key alone should not be enough to push a version.
+  spec.metadata["rubygems_mfa_required"] = "true"
+
+  # Only lib/. This gem is deliberately not an engine, so app/, config/, and db/
+  # have nothing to contribute; globbing them would silently package the engine
+  # artifacts the gem-packaging spec rules out.
   spec.files = Dir.chdir(File.expand_path(__dir__)) do
-    Dir["{app,config,db,lib}/**/*", "MIT-LICENSE", "Rakefile", "README.md"]
+    Dir["lib/**/*", "MIT-LICENSE", "README.md", "CHANGELOG.md"]
   end
 
   # Declared because Audioproxy::Signer requires it directly. Since Ruby 3.4

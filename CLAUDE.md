@@ -34,8 +34,11 @@ raise; it 403s at the proxy at request time, far from the call site. Two consequ
   copied from the server's published vectors. Never regenerate them from this gem's own
   implementation, which would make the test assert only that the code agrees with itself.
 
-Prefer stdlib over dependencies in the core. Base64 is handled with `pack("m0")`/`tr`/`delete`
-rather than the `base64` gem, so its un-defaulting in newer Rubies is a non-issue.
+Prefer stdlib over dependencies in the core. The one runtime dependency the core does take is
+`base64`, which `Signer` requires directly and the gemspec declares. Since Ruby 3.4 that is a
+bundled gem rather than a default one, so the declaration is what keeps it from becoming a
+`LoadError` in a process where ActiveSupport is not already pulling it in. Do not drop it in
+favour of `pack("m0")`; if you ever do, the gemspec dependency and this paragraph go with it.
 
 ## Planning
 
