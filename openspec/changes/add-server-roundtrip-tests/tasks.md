@@ -3,7 +3,7 @@
 ## 1. Harness
 
 - [ ] 1.1 Decide the source strategy (`local://` with a mounted fixture root vs an `https://` source) and record it in `design.md`
-- [ ] 1.2 Boot `ghcr.io/audioproxy/audioproxy` at a pinned tag with the key, salt and source root the tests sign against
+- [ ] 1.2 Boot `ghcr.io/audioproxy/audioproxy:0.6.0` (the release that added `exp`) with the key, salt and source root the tests sign against
 - [ ] 1.3 A `:server` test tag, excluded from `bin/test` by default and skipped (not failed) when no container is reachable
 - [ ] 1.4 A failure message that names the pinned proxy tag, so a version mismatch is legible
 
@@ -19,7 +19,7 @@
 - [ ] 3.1 Renders before `exp`
 - [ ] 3.2 410 after `exp` — not 403, not 422
 - [ ] 3.3 The boundary: a request in the second `exp` names is still served, confirming D5
-- [ ] 3.4 Copy the proxy's `exp`-bearing known-answer vector into `test/fixtures/signature_vectors.rb` if one is published; never regenerate from this gem's own signer
+- [x] 3.4 Copy the proxy's `exp`-bearing known-answer vector into `test/fixtures/signature_vectors.rb` if one is published — **checked at `v0.6.0`: none is.** The proxy still publishes the same two vectors this gem carries, neither with an `exp`. Nothing to copy, and nothing to synthesize; see proposal.md
 
 ## 4. CI and docs
 

@@ -16,8 +16,8 @@
   fractional duration, a millisecond timestamp, a `Date`, and `exp:` written as a plain option key
   or in `default_options`.
 
-  Requires a proxy build carrying the `exp` option, which is merged upstream but not yet in a
-  tagged release. Older proxies answer `exp:` with a `422`.
+  Requires audioproxy 0.6.0 or newer, the release that added the `exp` option. Older proxies
+  answer `exp:` with a `422`. Every other feature in this gem still works against 0.5.0.
 
 * `Audioproxy::Signer` is unchanged, and so is the isolation test that pins its extraction seam:
   `exp` is ordinary path bytes to the signer.

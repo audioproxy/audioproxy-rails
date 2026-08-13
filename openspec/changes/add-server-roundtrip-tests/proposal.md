@@ -45,14 +45,22 @@ commented-out `services:` block from the generator, which is roughly the shape t
 
 ## Coupling and sequencing
 
-Gated on the proxy **tagging a release that carries `exp`**. It is merged there (`2398fd5`) but no
-tag contains it: `v0.5.0` predates it by 27 commits. The non-expiry round-trips above could run
-against `v0.5.0` today, so this change can start before that tag exists and finish after it.
+**Ungated.** The proxy released `v0.6.0` on 2026-08-13 and it carries `exp` (the merge `2398fd5` is
+an ancestor of the tag; `expiry.ex`'s `now() > expires_at` and `parse_value("exp", …)` are both
+present in the tagged tree). Pin `ghcr.io/audioproxy/audioproxy:0.6.0`. Nothing blocks this change
+now.
 
-Pin an explicit image tag rather than `latest`. A test suite that silently follows the proxy's
-newest release turns an upstream change into a failure in this repo with no commit here to blame,
-and the whole point of this harness is to be the place where disagreement between the two is
-*legible*.
+Pin an explicit tag rather than `latest`. A suite that silently follows the proxy's newest release
+turns an upstream change into a failure in this repo with no commit here to blame, and the whole
+point of this harness is to be the place where disagreement between the two is *legible*.
+
+**No `exp`-bearing known-answer vector exists to copy, and this is settled rather than pending.**
+`v0.6.0`'s `test/audio_proxy/signature_test.exs` still publishes the same two vectors this gem
+already carries (`/f:opus/br:96/plain/…` and `/info/plain/…`), neither with an options segment
+carrying `exp`. Signing is agnostic to what the path bytes mean, so an `exp`-bearing vector would
+add nothing to the *signer* contract — which is exactly why the round-trip below, not a vector, is
+what actually verifies expiry. If the proxy ever publishes one, copy it; do not synthesize one here,
+and never regenerate any vector from this gem's own signer.
 
 ## Capabilities
 

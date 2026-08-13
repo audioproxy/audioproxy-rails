@@ -12,7 +12,7 @@ Full Rails is a development dependency only. `require "audioproxy"` works in a p
 
 Core signing and typed options work, in both the proxy's short spellings and their aliases, as do the Railtie's credentials/ENV wiring, the view helpers — URL, `<audio>` tag and preload hint — and ActiveStorage resolution for the S3 and Disk services. Blobs on any other service raise; see [ActiveStorage](#activestorage) for what to do about that.
 
-[Expiring URLs](#expiring-urls) work too, with one caveat worth reading before you rely on them: they need a proxy build carrying the `exp` option, which is merged upstream but not yet in a tagged release. Everything in this gem is verified against the proxy's published signature vectors and its source, but no test here has yet asked a running proxy whether a generated URL is accepted. That round-trip is the next change.
+[Expiring URLs](#expiring-urls) work too, against [audioproxy 0.6.0 or newer](#minimum-proxy-version). One caveat worth knowing either way: everything in this gem is verified against the proxy's published signature vectors and its source, but no test here has yet asked a running proxy whether a generated URL is accepted. That round-trip is the next change.
 
 ## Installation
 
@@ -274,7 +274,7 @@ An expiry composes with `raw:` rather than replacing it, since `exp` is not a va
 
 ### Minimum proxy version
 
-Expiring URLs need a proxy build that carries the `exp` option. It is merged on the proxy's `main` but not yet in a tagged release; `v0.5.0` and earlier do not have it and answer `exp:` with a `422 invalid option`. That failure is loud and server-side, so generating expiring URLs against an older proxy breaks visibly rather than silently ignoring the expiry. This gem does not version-sniff.
+Expiring URLs need **audioproxy 0.6.0 or newer**, the release that added the `exp` option. `0.5.0` and earlier answer `exp:` with a `422 invalid option`. That failure is loud and server-side, so pointing this gem at an older proxy breaks visibly rather than silently ignoring the expiry, and every other feature here works against `0.5.0` unchanged. This gem does not version-sniff.
 
 ## Rails
 
