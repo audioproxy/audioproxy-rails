@@ -12,6 +12,8 @@ Full Rails is a development dependency only. `require "audioproxy"` works in a p
 
 Core signing and typed options work, in both the proxy's short spellings and their aliases, as do the Railtie's credentials/ENV wiring, the view helpers — URL, `<audio>` tag and preload hint — and ActiveStorage resolution for the S3 and Disk services. Blobs on any other service raise; see [ActiveStorage](#activestorage) for what to do about that.
 
+[Expiring URLs](#expiring-urls) work too, with one caveat worth reading before you rely on them: they need a proxy build carrying the `exp` option, which is merged upstream but not yet in a tagged release. Everything in this gem is verified against the proxy's published signature vectors and its source, but no test here has yet asked a running proxy whether a generated URL is accepted. That round-trip is the next change.
+
 ## Installation
 
 ```ruby

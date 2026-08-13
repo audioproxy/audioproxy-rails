@@ -160,10 +160,12 @@ as they are; the isolation test is re-run unchanged as task 3.5 rather than modi
 - **Task 3.4, the `:server` round-trip, is deferred.** It needs both a tagged proxy image and a
   container harness this gem does not have (no compose file, no `:server` tag, nothing in CI). The
   proxy also publishes no `exp`-bearing signature vector to copy into
-  `test/fixtures/signature_vectors.rb`. → The task is rewritten as deferred and gated on the proxy
-  release. Every other test in §3 runs against a frozen clock and asserts exact bytes, so the
-  arithmetic is covered; what stays unproven until 3.4 lands is that the proxy agrees with our
-  reading of its boundary semantics.
+  `test/fixtures/signature_vectors.rb`. → The task moved out of this change into
+  `add-server-roundtrip-tests`, which carries the harness as well as this one use of it. Every other
+  test in §3 runs against a frozen clock and asserts exact bytes, so the arithmetic is covered; what
+  stays unproven until that change lands is that the proxy agrees with our reading of its boundary
+  semantics. Two independent readings agreed on it (see "What review changed"), which is not the
+  same as having asked.
 - **Whole-seconds-only rejects a spelling someone will try.** `expires_in: 1.5.seconds` raises. → The
   message says to round explicitly. The alternative — truncating silently — is the class of thing
   this gem raises about everywhere else.

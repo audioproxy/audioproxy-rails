@@ -15,7 +15,7 @@
 - [x] 3.1 Frozen-clock arithmetic for duration, Integer, Time-like, and TimeWithZone inputs; exact `exp:` segment assertion
 - [x] 3.2 Every raise path (both keywords, zero/negative, past, wrong type)
 - [x] 3.3 Global default + override + opt-out matrix
-- [ ] 3.4 **Deferred** — `:server`-tagged round-trip against a proxy container with exp support: renders before expiry, 410 after; copy the server's exp-bearing signature vector into fixtures if one is published. Gated on the proxy tagging a release that carries `exp` (merged as `2398fd5`, unreleased as of `v0.5.0`), and on this gem gaining a container harness it does not have yet. See design.md Risks.
+- [x] 3.4 **Moved out of this change** — the `:server`-tagged round-trip is now `add-server-roundtrip-tests` §3, which carries it along with the harness it needs. It was deferred here because this gem had no `:server` infrastructure at all and because `exp` is merged upstream (`2398fd5`) but not in any tagged release. Neither is a loose end of this change; both are their own piece of work.
 - [x] 3.5 Signer isolation test untouched and still green (exp is ordinary path bytes)
 
 ## 4. Docs

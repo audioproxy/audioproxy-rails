@@ -112,3 +112,10 @@ browser never matches to the element that needs it.
 - **WHEN** the endpoint is `https://cdn.example.com/audio` and a preload tag is rendered
 - **THEN** the `href` equals `audioproxy_url` for the same arguments, with no asset-pipeline rewriting applied to it
 
+### Requirement: Helpers forward expiry keywords
+Every view helper that builds a URL SHALL forward `expires_in:` and `expires_at:` to `url_for` unchanged.
+
+#### Scenario: Audio tag with expiry
+- **WHEN** `audioproxy_audio_tag(attachment, format: "opus", expires_in: 30.minutes)` renders
+- **THEN** the tag's src carries an `exp:` option 30 minutes ahead of the frozen clock
+

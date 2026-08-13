@@ -185,3 +185,14 @@ message SHALL note that spelled-out aliases are also accepted.
 - **WHEN** `url_for(source, bit_rate: 96)` is called
 - **THEN** an `ArgumentError` is raised listing the canonical keys and noting that aliases exist
 
+### Requirement: exp renders as integer seconds
+The options renderer SHALL render `exp` as a bare integer unix-seconds value, never decimal or scientific notation, and SHALL raise rather than render a non-Integer. Position within the options segment is not load-bearing: `exp` is a request option, excluded from the proxy's canonical options string and cache key rather than normalized into them, so the builder appends it last and the variant prefix stays byte-identical to the same call without an expiry.
+
+#### Scenario: Integer rendering
+- **WHEN** an expiry of 1767225600 is rendered
+- **THEN** the segment is exactly `exp:1767225600`
+
+#### Scenario: A non-Integer expiry raises
+- **WHEN** `exp` is given a Float, a String or a duration
+- **THEN** an `ArgumentError` is raised rather than a segment the proxy would refuse
+
