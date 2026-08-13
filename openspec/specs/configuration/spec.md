@@ -82,6 +82,18 @@ Configuration SHALL accept `expires_in` (nil by default, meaning URLs carry no e
 - **THEN** the URL carries `exp:` one hour ahead
 
 #### Scenario: Per-call opt-out
-- **WHEN** the global default is set and the call passes `expires_in: nil`
+- **WHEN** the global default is set and the call passes `expires_in: nil` or `expires_at: nil`
 - **THEN** the URL carries no `exp:` option
+
+#### Scenario: The default is measured from each call
+- **WHEN** two URLs are built ten minutes apart under one configured `expires_in`
+- **THEN** their `exp:` values differ by ten minutes, rather than both dating from boot
+
+#### Scenario: expires_in validates at assignment
+- **WHEN** `config.expires_in` is assigned a non-positive value, a fractional duration, or a type that is not a duration or Integer
+- **THEN** an `ArgumentError` is raised at assignment, so a typo fails at boot rather than in a mailer
+
+#### Scenario: An absolute instant is not a configurable default
+- **WHEN** `config.default_options` is assigned an `exp:` or `expires_at:` key
+- **THEN** an `ArgumentError` is raised directing the caller to `config.expires_in`, which is a duration; there is no `config.expires_at`
 

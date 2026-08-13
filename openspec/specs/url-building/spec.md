@@ -103,3 +103,33 @@ An endpoint carrying a path prefix SHALL produce the same signature segment as a
 - **WHEN** `expires_at:` is at or before the current time
 - **THEN** an error is raised rather than minting an already-dead URL
 
+#### Scenario: A timestamp past the proxy's bound raises
+- **WHEN** `expires_at:` exceeds the proxy's maximum (`253_402_300_799`), as a millisecond timestamp does
+- **THEN** an error is raised, rather than emitting a URL the proxy answers with a 422
+
+### Requirement: exp is reachable only through the expiry keywords
+`url_for` SHALL refuse `exp:` (and its `expires_at` alias) as an ordinary typed option key, and configuration SHALL refuse it in `default_options`, directing the caller to `expires_in:`/`expires_at:` and `config.expires_in` instead. An expiry written as a plain option bypasses the validation above, and the two mistakes it invites — a timestamp already past, and a millisecond timestamp — each render a URL that looks correct and is refused at request time.
+
+#### Scenario: exp as an option key raises
+- **WHEN** `url_for(source, exp: 1767229200)` is called
+- **THEN** an `ArgumentError` is raised naming `expires_in:` and `expires_at:`, and no URL is produced
+
+#### Scenario: exp in default_options raises at assignment
+- **WHEN** `config.default_options = { exp: 1767229200 }` is assigned
+- **THEN** an `ArgumentError` is raised, because an absolute instant applied process-globally expires every URL the process builds at one second
+
+### Requirement: An expiry composes with raw options
+Because `exp` is a request option rather than a variant option, an expiry SHALL be applied alongside a `raw:` options string rather than being refused as a conflict or silently dropped, and SHALL render after the variant options so the variant prefix is byte-identical to the same call without an expiry. A `raw:` string that already carries its own `exp:` segment SHALL raise when an expiry is also in force, whether that expiry came from a keyword or from `config.expires_in`.
+
+#### Scenario: raw and an expiry compose
+- **WHEN** `url_for(source, raw: "f:opus/br:96", expires_in: 1.hour)` is called
+- **THEN** the options segment is `f:opus/br:96/exp:<unix-seconds>`, and no conflict is raised
+
+#### Scenario: A duplicated exp raises at the call site
+- **WHEN** a `raw:` string already containing `exp:` is combined with a configured or per-call expiry
+- **THEN** an `ArgumentError` is raised, rather than emitting two `exp:` segments for the proxy to refuse
+
+#### Scenario: A raw exp passes through when no expiry is in force
+- **WHEN** a `raw:` string containing `exp:` is given and no expiry applies
+- **THEN** it is rendered verbatim, as the escape hatch it is
+
