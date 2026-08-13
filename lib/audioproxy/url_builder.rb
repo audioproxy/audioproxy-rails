@@ -109,7 +109,8 @@ module Audioproxy
         # A raw: string that already spells out exp: would give the proxy two of
         # them and a duplicate-option 422 — a failure the caller never wrote if
         # the second one came from config.expires_in.
-        if segment.split("/").any? { |part| part.start_with?("exp:") }
+        prefixes = Options::REQUEST_KEYS.map { |key| "#{key}:" }
+        if segment.split("/").any? { |part| prefixes.any? { |prefix| part.start_with?(prefix) } }
           raise ArgumentError,
             "Audioproxy url_for was given raw options that already carry an exp: segment " \
             "(#{segment.inspect}) and an expiry to apply; the proxy rejects a duplicated option. " \

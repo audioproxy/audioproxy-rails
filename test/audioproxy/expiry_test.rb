@@ -54,9 +54,12 @@ class Audioproxy::ExpiryTest < ActiveSupport::TestCase
     end
   end
 
-  # A TimeWithZone answers is_a?(Time) truthfully while Module#=== does not, so
-  # a case/when here would reject the single most likely Rails input. Pinned
-  # separately because the failure is silent in review and loud only in prod.
+  # A TimeWithZone is the single most likely Rails input, and the type check
+  # that admits it is load-order-sensitive: `case/when Time` matches one only
+  # because ActiveSupport patches Time.===, which this gem never requires. This
+  # suite runs under full Rails, so it cannot see that difference — see the
+  # comment in Expiry.unix_seconds, and signer_isolation_test.rb for the shape
+  # of a test that could. Pinned here for the behaviour, not the mechanism.
   test "a TimeWithZone is read as the instant it stands for, not its wall clock" do
     travel_to FROZEN do
       vienna = Time.at(1767229200).in_time_zone("Europe/Vienna")
@@ -64,6 +67,39 @@ class Audioproxy::ExpiryTest < ActiveSupport::TestCase
 
       assert_equal "f:mp3/exp:1767229200", build(expires_at: vienna)
       assert_equal build(expires_at: vienna), build(expires_at: tokyo)
+    end
+  end
+
+  # 0.5.hours is a Duration whose #value is the Float 1800.0, not an Integer.
+  # It lands on a whole second, so it is accepted — the whole-seconds rule is
+  # about the value, not about its class. The neighbouring raise (1.5.seconds,
+  # #value 1.5) is asserted below; this is the other side of that line.
+  test "a Duration with a whole-valued Float is accepted" do
+    travel_to FROZEN do
+      assert_equal "f:mp3/exp:1767227400", build(expires_in: 0.5.hours)
+      assert_equal build(expires_in: 30.minutes), build(expires_in: 0.5.hours)
+    end
+  end
+
+  # The past-check refuses `expires_at == now`; one second later must pass, or
+  # the guard is off by one in the direction that silently rejects live URLs.
+  test "one second past now is accepted, and now itself is not" do
+    travel_to FROZEN do
+      assert_equal "f:mp3/exp:1767225601", build(expires_at: FROZEN + 1.second)
+      assert_raises(ArgumentError) { build(expires_at: FROZEN) }
+    end
+  end
+
+  # A DateTime carries its own offset, and to_time must read the instant rather
+  # than the wall clock. A UTC-only fixture would pass either way.
+  test "a non-UTC DateTime is read as the instant it names" do
+    travel_to FROZEN do
+      # 03:00+02:00 is 01:00Z, which is 1767229200. Read as a wall clock and
+      # stamped as UTC it would be 1767236400, seven thousand seconds out.
+      vienna = DateTime.new(2026, 1, 1, 3, 0, 0, "+02:00")
+
+      assert_equal "f:mp3/exp:1767229200", build(expires_at: vienna)
+      assert_equal build(expires_at: Time.at(1767229200).utc), build(expires_at: vienna)
     end
   end
 
@@ -223,7 +259,14 @@ class Audioproxy::ExpiryTest < ActiveSupport::TestCase
       assert_match(/milliseconds/, error.message)
 
       assert_raises(ArgumentError) { build(expires_at: 1767229200 * 1000) }
-      assert_raises(ArgumentError) { build(expires_in: max) }
+
+      # An out-of-range window overflows the same bound, but the caller wrote a
+      # duration, so the millisecond advice would name a mistake they did not
+      # make.
+      window = assert_raises(ArgumentError) { build(expires_in: max) }
+
+      assert_match(/window of #{max} seconds/, window.message)
+      refute_match(/milliseconds/, window.message)
     end
   end
 

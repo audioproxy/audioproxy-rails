@@ -172,6 +172,44 @@ as they are; the isolation test is re-run unchanged as task 3.5 rather than modi
   the origin-side single-variant guarantee is real, the edge-side one is not, and `exp` costs edge
   cache entries whichever syntax carries it (proxy API doc §3.5).
 
+## What review changed
+
+Reviewed by opencode running `opencode-go/kimi-k2.7-code`, read-only, against the spec and this
+document rather than the diff alone, and pointed at the proxy checkout with six claims to verify at
+the source. No HIGH findings, and no path was found that emits a URL missing an `exp:` that was
+asked for.
+
+**All six claims this document makes about the proxy were confirmed against the proxy's own
+source**, which is the part that was previously resting on my reading alone: `exp` as a request
+option excluded from the cache key, the exclusive `now() > exp` boundary at `expiry.ex:66`, the
+`253_402_300_799` bound at `options.ex:129`, a past `exp` parsing rather than 422ing, position not
+being load-bearing, and the check running after signature verification.
+
+One finding was confirmed and acted on, and it sharpened a comment into a real constraint. The
+original rationale for `unix_seconds` using `is_a?` rather than `case/when` said `Module#===` would
+reject a `TimeWithZone`. The reviewer correctly pointed out that `case/when Time` *does* match one —
+but only because ActiveSupport patches `Time.===` in `core_ext/time/calculations.rb`, a file this
+gem never requires. After a bare `require "audioproxy"`, `Time.===` is still `Module`'s. So
+`case/when` would have accepted a `TimeWithZone` inside a Rails app and rejected it in the plain
+Ruby script `url_for` is documented to support. The code was already right; the comment now says
+why, and the test suite cannot observe the difference because it runs under full Rails.
+
+Three findings were **rejected**, all against `with_expiry`'s raw-collision scan, all verified in a
+real process before rejection:
+
+- *"`raw: "dl:report/exp:draft.mp3"` is proxy-legal, so the scan false-positives."* False premise.
+  The proxy splits the options string on `/` before splitting each segment on `:`
+  (`options.ex:370`, then `:375`), so that string is two segments and the second is `exp:draft.mp3`,
+  which fails `bounded_integer` → 422. It is not legal with or without the guard. The finding also
+  contradicted its own proposed fix, which compares the key before the first `:` and yields `exp`.
+- *"`raw: "expired:1"` trips the prefix match."* `"expired:1".start_with?("exp:")` is `false`.
+- *"`raw: "f:opus//exp:…"` slips a second `exp:` through."* `split("/")` keeps the `exp:` part;
+  the scan matches it.
+
+The reviewer also named three test cases worth pinning, all now present: a Duration whose `#value`
+is a whole-valued Float (`0.5.hours`), the accepted side of the `expires_at` boundary (`now + 1`),
+and a non-UTC `DateTime`.
+
 ## Open Questions
 
 - Whether `expires_in:` should also accept a `Float` of whole value (`3600.0`). Currently it does not

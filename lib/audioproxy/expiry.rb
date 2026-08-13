@@ -67,7 +67,9 @@ module Audioproxy
         def within(value, now:, source:)
           return nil if value.nil?
 
-          bounded(now + seconds(value, source: source), source: source)
+          window = seconds(value, source: source)
+
+          bounded(now + window, source: source, window: window)
         end
 
         def at(value, now:)
@@ -89,10 +91,21 @@ module Audioproxy
         end
 
         # Time, DateTime and ActiveSupport::TimeWithZone, or an Integer already
-        # in unix seconds. is_a? rather than case/when on purpose: TimeWithZone
-        # answers is_a?(Time) truthfully about what it stands for, while
-        # Module#=== performs the real type check and would reject it — the same
-        # trap Options documents for Duration.
+        # in unix seconds.
+        #
+        # is_a? rather than case/when, and the reason is narrower than the one
+        # Options gives for Duration. TimeWithZone overrides is_a? to answer
+        # truthfully about what it stands for, and Module#=== ignores that
+        # override — but ActiveSupport patches Time.=== to cover the gap
+        # (core_ext/time/calculations.rb), so under full Rails a case/when Time
+        # matches a TimeWithZone after all.
+        #
+        # It matches only where that core_ext is loaded, and this file does not
+        # require it: after a bare `require "audioproxy"`, Time.=== is still
+        # Module's. Since url_for is documented as usable with no Rails loaded,
+        # case/when here would accept a TimeWithZone in an app and reject it in
+        # a plain Ruby script. is_a? is TimeWithZone's own override and needs
+        # nothing else loaded, so it answers the same in both.
         #
         # Date is not on the list. Date#to_time is local midnight, so the same
         # `expires_at: Date.tomorrow` means a different instant on every machine
@@ -115,12 +128,16 @@ module Audioproxy
         # The proxy caps exp and 422s past it, which is where the millisecond
         # typo (`some_time.to_i * 1000`) lands: a clean-looking URL that never
         # works.
-        def bounded(seconds, source:)
+        #
+        # +window+ is set only on the expires_in: path, where the caller wrote a
+        # duration rather than a timestamp — advising them about milliseconds
+        # there would name a mistake they did not make.
+        def bounded(seconds, source:, window: nil)
           if seconds > Options::MAX_EXPIRES_AT
             raise ArgumentError,
               "Audioproxy #{source} produced #{seconds}, past the proxy's limit of " \
               "#{Options::MAX_EXPIRES_AT} (9999-12-31T23:59:59Z); " \
-              "unix seconds, not milliseconds"
+              "#{window ? "a window of #{window} seconds reaches past the year 9999" : "unix seconds, not milliseconds"}"
           end
 
           seconds

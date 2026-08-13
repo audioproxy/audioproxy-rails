@@ -24,7 +24,8 @@ module Audioproxy
     # default would expire every URL the process ever mints at one second, and
     # it would skip the validation the keywords run. +expires_in+ below is the
     # default that makes sense.
-    EXPIRY_KEYS = ([ :exp ] + Options::REQUEST_KEYS.map { |key| Options::ALIASES[key] }).uniq.freeze
+    EXPIRY_KEYS = (Options::REQUEST_KEYS + Options::REQUEST_KEYS.filter_map { |key| Options::ALIASES[key] })
+      .uniq.freeze
     OPTION_KEYS = (([ :raw ] + Options::KEYS + Options::ALIASES.values).uniq - EXPIRY_KEYS).freeze
 
     attr_reader :endpoint, :key, :salt, :default_options, :expires_in
