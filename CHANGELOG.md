@@ -1,5 +1,27 @@
 # Changelog
 
+## Unreleased
+
+* Expiring URLs. `url_for` and every view helper accept `expires_in:` (a duration or Integer
+  seconds from now) and `expires_at:` (the instant itself), mutually exclusive, rendering the
+  proxy's `exp:` option. `config.expires_in` sets a global default; a per-call `expires_in: nil`
+  opts one URL out of it.
+
+  Because `exp` is a request option on the proxy rather than a variant option, it is signed but
+  excluded from the cache key: minting a fresh short-lived URL on every render costs no extra
+  render and no extra cached variant at the origin.
+
+  Every input that would produce a valid-looking URL the proxy refuses raises at the call site
+  instead: both keywords together, a non-positive window, an `expires_at` at or before now, a
+  fractional duration, a millisecond timestamp, a `Date`, and `exp:` written as a plain option key
+  or in `default_options`.
+
+  Requires a proxy build carrying the `exp` option, which is merged upstream but not yet in a
+  tagged release. Older proxies answer `exp:` with a `422`.
+
+* `Audioproxy::Signer` is unchanged, and so is the isolation test that pins its extraction seam:
+  `exp` is ordinary path bytes to the signer.
+
 ## 0.1.0
 
 First release.

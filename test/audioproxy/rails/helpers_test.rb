@@ -33,6 +33,47 @@ class Audioproxy::Rails::HelpersTest < ActionView::TestCase
     assert_raises(ArgumentError) { view.audioproxy_url(nil) }
   end
 
+  # --- expiry pass-through --------------------------------------------------
+
+  # The helpers splat **options into the builder, so forwarding is structural
+  # rather than enumerated — which is exactly why it needs pinning: a helper
+  # that grew an explicit keyword list would swallow these two silently, and a
+  # swallowed expiry is an eternal URL where a short-lived one was asked for.
+  #
+  # The clock is frozen so the helper and the reference call cannot land on
+  # different seconds and pass by accident on a fast machine.
+  test "every helper forwards expires_in: and expires_at: to the builder" do
+    travel_to Time.at(1767225600).utc do
+      { expires_in: 30.minutes, expires_at: Time.at(1767312000).utc }.each do |keyword, value|
+        expected = Audioproxy.url_for(SOURCE, format: "opus", keyword => value)
+
+        assert_includes expected, "/exp:"
+
+        assert_equal expected, view.audioproxy_url(SOURCE, format: "opus", keyword => value)
+        assert_includes view.audioproxy_audio_tag(SOURCE, format: "opus", keyword => value),
+          %(src="#{expected}")
+        assert_includes view.audioproxy_preload_link_tag(SOURCE, format: "opus", keyword => value),
+          %(href="#{expected}")
+      end
+    end
+  end
+
+  test "the expiry an audio tag carries is 30 minutes ahead of the frozen clock" do
+    travel_to Time.at(1767225600).utc do
+      tag = view.audioproxy_audio_tag(SOURCE, format: "opus", expires_in: 30.minutes)
+
+      assert_includes tag, "/f:opus/exp:1767227400/enc/"
+    end
+  end
+
+  test "the core's expiry errors reach the view rather than rendering a dead URL" do
+    assert_raises(ArgumentError) { view.audioproxy_url(SOURCE, expires_in: 0) }
+    assert_raises(ArgumentError) { view.audioproxy_audio_tag(SOURCE, expires_at: Time.at(0)) }
+    assert_raises(ArgumentError) do
+      view.audioproxy_preload_link_tag(SOURCE, expires_in: 1.hour, expires_at: 1.day.from_now)
+    end
+  end
+
   # --- audioproxy_audio_tag ------------------------------------------------
 
   test "audioproxy_audio_tag renders an audio tag around the proxy URL" do

@@ -455,7 +455,13 @@ class Audioproxy::UrlBuilderTest < ActiveSupport::TestCase
   test "the byte-stability matrix covers every alias" do
     covered = BYTE_STABILITY_PAIRS.flat_map { |aliased, _| aliased.keys }.uniq
 
-    assert_equal [], Audioproxy::Options::ALIASES.values - covered,
+    # exp:/expires_at: are the exception, and by construction rather than
+    # oversight: url_for refuses both as option keys, so neither spelling has a
+    # call site here to compare (add-expiring-urls D1). Their rendering is
+    # pinned in options_test and their arithmetic in expiry_test.
+    unreachable = Audioproxy::Config::EXPIRY_KEYS
+
+    assert_equal [], Audioproxy::Options::ALIASES.values - covered - unreachable,
       "every alias must appear in BYTE_STABILITY_PAIRS"
   end
 

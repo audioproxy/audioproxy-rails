@@ -79,6 +79,8 @@ The gem is deliberately strict about input, because the alternative is not an ex
 
 In development, `config.unsigned = true` emits the literal `insecure` signature segment instead of an HMAC, matching the proxy's `AP_ALLOW_INSECURE` mode. No key or salt is needed in that mode.
 
+`config.default_options` sets options applied to every URL, and `config.expires_in` sets a global expiry; both are covered in [Options](#options) and [Expiring URLs](#expiring-urls).
+
 ## Generating URLs
 
 ```ruby
@@ -211,6 +213,66 @@ Audioproxy.url_for("local://a.wav", unsigned: true)
 ```
 
 `Audioproxy.url_for` is Rails-free: it works in jobs, mailers, serializers, and plain Ruby scripts.
+
+## Expiring URLs
+
+A signed URL is otherwise an eternal bearer capability: the signature covers the path and nothing else, so a leaked URL works forever and the only revocation is rotating the key, which kills every URL you ever issued. `expires_in:` and `expires_at:` time-box one URL without touching any other.
+
+```ruby
+Audioproxy.url_for(source, format: "opus", expires_in: 1.hour)
+# => ".../f:opus/exp:1767229200/enc/..."
+
+Audioproxy.url_for(source, format: "opus", expires_at: 1.day.from_now)
+```
+
+`expires_in:` takes an ActiveSupport duration or a positive Integer of seconds, added to the current time when the URL is built. `expires_at:` takes a `Time`, `DateTime`, `ActiveSupport::TimeWithZone`, or an Integer unix timestamp, used as the instant itself. They are mutually exclusive. Past the expiry the proxy answers `410 Gone`, checked after the signature and before it touches your storage, so an expired URL costs a render of nothing.
+
+Every view helper forwards both keywords:
+
+```erb
+<%= audioproxy_audio_tag @recording.audio, format: "opus", expires_in: 30.minutes, html: { controls: true } %>
+```
+
+### Rotation is free at the origin
+
+On the proxy's side `exp` is a *request* option: it is signed as part of the path, but excluded from the cache key and from the ffmpeg arguments. Two URLs that differ only in their expiry are one variant and one render, so minting a fresh short-lived URL on every page render costs nothing at the origin. Each user can carry their own URL while all of them share one cached variant.
+
+That guarantee is origin-side only. Two URLs differing in `exp` are still two distinct URLs to a CDN, which stores them separately, so a short expiry on a heavily shared page trades edge cache entries for revocability. That is the trade whichever syntax carries the expiry, not a cost of this spelling.
+
+### A global default
+
+```ruby
+Audioproxy.configure { |c| c.expires_in = 1.hour }
+```
+
+`config.expires_in` is `nil` by default, and `nil` means URLs carry no expiry at all. When it is set, every URL this process builds carries one, measured from each call rather than from boot. A per-call `expires_in:`/`expires_at:` overrides it, and a per-call `expires_in: nil` opts a single URL out:
+
+```ruby
+Audioproxy.url_for(source, expires_in: 5.minutes)   # overrides the default
+Audioproxy.url_for(source, expires_in: nil)         # no expiry on this one
+```
+
+It is a duration rather than an instant on purpose: an absolute timestamp applied process-globally would expire every URL the app will ever mint at the same second. There is no `config.expires_at`, and `exp:` is refused in `default_options` for the same reason.
+
+### What raises, and why
+
+An expiry the proxy will not accept produces a URL that looks perfectly valid and fails at request time, far from the call that built it. So every one of these raises `ArgumentError` at the call site instead:
+
+```ruby
+Audioproxy.url_for(source, expires_in: 1.hour, expires_at: 1.day.from_now)  # both keywords
+Audioproxy.url_for(source, expires_in: 0)                                   # non-positive window
+Audioproxy.url_for(source, expires_at: 1.hour.ago)                          # already dead
+Audioproxy.url_for(source, expires_in: 1.5.seconds)                         # not whole seconds
+Audioproxy.url_for(source, expires_at: 1.hour.from_now.to_i * 1000)         # milliseconds
+Audioproxy.url_for(source, expires_at: Date.tomorrow)                       # local midnight, not an instant
+Audioproxy.url_for(source, exp: 1767229200)                                 # use the keywords
+```
+
+An expiry composes with `raw:` rather than replacing it, since `exp` is not a variant option: `url_for(source, raw: "f:opus/br:96", expires_in: 1.hour)` renders `f:opus/br:96/exp:…`. A `raw:` string that already spells out its own `exp:` raises when an expiry is also in force, because the proxy rejects a duplicated option and, under a global default, that is a failure you never wrote.
+
+### Minimum proxy version
+
+Expiring URLs need a proxy build that carries the `exp` option. It is merged on the proxy's `main` but not yet in a tagged release; `v0.5.0` and earlier do not have it and answer `exp:` with a `422 invalid option`. That failure is loud and server-side, so generating expiring URLs against an older proxy breaks visibly rather than silently ignoring the expiry. This gem does not version-sniff.
 
 ## Rails
 
