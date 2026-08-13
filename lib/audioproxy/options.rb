@@ -11,8 +11,16 @@ module Audioproxy
   # carrying a separator — because a mangled segment is a valid-looking URL for
   # the wrong variant, and it fails at request time, far from here.
   module Options
-    # The proxy's fourteen option keys, canonical short spellings.
-    KEYS = %i[bd br cb ch dl f fade gain norm pk_fmt pts q sr t].freeze
+    # The proxy's fifteen option keys, canonical short spellings.
+    KEYS = %i[bd br cb ch dl exp f fade gain norm pk_fmt pts q sr t].freeze
+
+    # The one *request* option in the grammar: signed as path bytes, but
+    # excluded from the proxy's canonical options string, its cache key and its
+    # ffmpeg args, so two URLs differing only here are one variant and one
+    # render. Nothing in this module treats it specially beyond D1b below; the
+    # distinction is the proxy's, and it is recorded here because it is the
+    # reason exp may be appended to a raw: string that variant options may not.
+    REQUEST_KEYS = %i[exp].freeze
 
     # A spelled-out spelling for each canonical key, for call sites that would
     # rather read than decode. Total over KEYS, so "does this key have an alias"
@@ -34,7 +42,8 @@ module Audioproxy
       pts: :peak_count,
       pk_fmt: :peak_format,
       dl: :download,
-      cb: :cache_buster
+      cb: :cache_buster,
+      exp: :expires_at
     }.freeze
 
     # Every accepted spelling to the canonical key it renders as. Canonical
@@ -59,6 +68,13 @@ module Audioproxy
     # The proxy caps decimals at 3 places when it parses, and hashes the
     # normalized options string into its cache key.
     MAX_DECIMALS = 3
+
+    # The proxy's own bound on exp (@max_expires_at in its Options module):
+    # 9999-12-31T23:59:59Z. Past it, the proxy answers 422 invalid-option. The
+    # grammar fact lives here; UrlBuilder is what checks a caller's value
+    # against it, because that is where an out-of-range timestamp can still be
+    # reported against the keyword the caller actually wrote.
+    MAX_EXPIRES_AT = 253_402_300_799
 
     # Characters a rendered value may not carry. The builder supplies '/' and
     # ':', so a value containing either silently invents a segment or a part.
@@ -186,6 +202,7 @@ module Audioproxy
           # Without this, t: 30.seconds is rejected as "not a number" by
           # something that says it is one.
           return render_duration(key, value) if value.is_a?(ActiveSupport::Duration)
+          return render_expiry(value) if key == :exp
           return format_number(value) unless OPAQUE_KEYS.include?(key)
 
           case value
@@ -194,6 +211,23 @@ module Audioproxy
           else
             raise ArgumentError, "Audioproxy option #{key}: must be a String, Symbol or number, got #{value.class}"
           end
+        end
+
+        # exp is unix seconds, and the proxy's grammar has no decimal there:
+        # exp:1.5 parses as an invalid option and 422s. So this is one of the
+        # values the module cannot render faithfully, and it raises rather than
+        # emitting a segment that looks like a timestamp and is not one (D1b).
+        # Integer only — not a numeric String, because the two inputs that reach
+        # this key in practice are Time#to_i and an arithmetic result, and both
+        # are Integers.
+        def render_expiry(value)
+          unless value.is_a?(Integer)
+            raise ArgumentError,
+              "Audioproxy option exp: must be an Integer of unix seconds, got #{value.inspect}; " \
+              "pass expires_in: or expires_at: to url_for and let it do the arithmetic"
+          end
+
+          value.to_s
         end
 
         # A Duration is the Rails spelling of a number of seconds, so it is

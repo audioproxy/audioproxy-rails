@@ -1,6 +1,7 @@
 require "uri"
 require "active_support/core_ext/hash/keys"
 require "audioproxy/options"
+require "audioproxy/expiry"
 
 module Audioproxy
   # Raised when a URL is requested but the configuration cannot produce one the
@@ -18,9 +19,16 @@ module Audioproxy
     # spelled-out aliases, plus the pre-rendered +raw:+ escape hatch. An
     # unrecognized key is a typo, and a typo that is silently dropped emits a
     # valid URL for the wrong variant.
-    OPTION_KEYS = ([ :raw ] + Options::KEYS + Options::ALIASES.values).uniq.freeze
+    #
+    # exp is subtracted deliberately (D1). It is an absolute instant, so a
+    # default would expire every URL the process ever mints at one second, and
+    # it would skip the validation the keywords run. +expires_in+ below is the
+    # default that makes sense.
+    EXPIRY_KEYS = (Options::REQUEST_KEYS + Options::REQUEST_KEYS.filter_map { |key| Options::ALIASES[key] })
+      .uniq.freeze
+    OPTION_KEYS = (([ :raw ] + Options::KEYS + Options::ALIASES.values).uniq - EXPIRY_KEYS).freeze
 
-    attr_reader :endpoint, :key, :salt, :default_options
+    attr_reader :endpoint, :key, :salt, :default_options, :expires_in
     attr_accessor :unsigned
 
     def initialize
@@ -29,6 +37,18 @@ module Audioproxy
       @salt = nil
       @unsigned = false
       @default_options = {}
+      @expires_in = nil
+    end
+
+    # How long a URL stays valid, applied to every URL this process builds.
+    # nil — the default — means URLs carry no expiry and remain the eternal
+    # bearer capabilities they have always been.
+    #
+    # A duration rather than an instant, and validated here so a typo fails at
+    # boot rather than in a mailer. A call site overrides it with its own
+    # +expires_in:+/+expires_at:+, or opts one URL out with +expires_in: nil+.
+    def expires_in=(value)
+      @expires_in = value.nil? ? nil : Expiry.seconds(value, source: "config expires_in")
     end
 
     # Full base URL of the proxy: scheme + host, optionally with a path prefix
@@ -128,6 +148,15 @@ module Audioproxy
 
         normalized = value.symbolize_keys
 
+        # Before the generic unknown-key message, which would report exp as a
+        # typo when it is a real option reached a different way (D1).
+        unless (expiry = normalized.keys & EXPIRY_KEYS).empty?
+          raise ArgumentError,
+            "Audioproxy config default_options must not carry #{expiry.first.inspect}: it is an " \
+            "absolute instant, so every URL this process builds would expire at the same second. " \
+            "Set config.expires_in to a duration instead, or pass expires_in:/expires_at: per call"
+        end
+
         # Not assert_valid_keys: its message lists the aliases among the valid
         # keys without saying they are aliases, so a caller who guessed
         # bit_rate: sees :bitrate in a flat list and cannot tell the two
@@ -135,7 +164,7 @@ module Audioproxy
         unless (unknown = normalized.keys - OPTION_KEYS).empty?
           raise ArgumentError,
             "unknown Audioproxy option #{unknown.first.inspect} in default_options; known keys are " \
-            "#{([ :raw ] + Options::KEYS).join(", ")}, each also accepted as its spelled-out alias " \
+            "#{([ :raw ] + Options::KEYS - EXPIRY_KEYS).join(", ")}, each also accepted as its spelled-out alias " \
             "(#{Options::ALIASES[:br]}, #{Options::ALIASES[:sr]}, #{Options::ALIASES[:pk_fmt]}, …)"
         end
 

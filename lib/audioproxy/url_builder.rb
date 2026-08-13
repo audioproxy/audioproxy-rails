@@ -1,5 +1,6 @@
 require "base64"
 require "active_support/core_ext/object/blank"
+require "audioproxy/expiry"
 
 module Audioproxy
   # Assembles +{endpoint}/{signature}/{options}/{source}+ URLs, byte-compatible
@@ -29,11 +30,23 @@ module Audioproxy
     # spelled-out alias (+format:+, +bitrate:+, +trim:+ …), resolved to the
     # canonical key before anything is rendered. A keyword that is neither a
     # builder option nor a proxy option key raises rather than being ignored.
-    def url_for(source, raw: nil, endpoint: nil, unsigned: nil, **typed)
+    #
+    # +expires_in:+ (a duration or Integer seconds from now) and +expires_at:+
+    # (the instant itself) are mutually exclusive and time-box this one URL,
+    # overriding +config.expires_in+; either given as nil opts out of it (D6).
+    def url_for(source, raw: nil, endpoint: nil, unsigned: nil,
+                expires_in: Expiry::UNSET, expires_at: Expiry::UNSET, **typed)
       base = endpoint.nil? ? config.endpoint : Config.new.tap { |c| c.endpoint = endpoint }.endpoint
       raise ConfigurationError, "Audioproxy has no endpoint configured" if base.nil?
 
-      rest_of_path = "/#{options_segment(raw, typed)}/#{source_segment(source)}"
+      # Once per URL, so the window arithmetic and the past-check cannot
+      # straddle a second boundary (D4).
+      expiry = Expiry.timestamp(
+        expires_in: expires_in, expires_at: expires_at,
+        default_expires_in: config.expires_in, now: Time.now.to_i
+      )
+
+      rest_of_path = "/#{options_segment(raw, typed, expiry)}/#{source_segment(source)}"
       insecure = unsigned.nil? ? config.unsigned : unsigned
 
       "#{base}/#{insecure ? INSECURE_SEGMENT : sign(rest_of_path)}#{rest_of_path}"
@@ -55,7 +68,11 @@ module Audioproxy
       # configured defaults entirely; typed per-call keys merge over typed
       # defaults key-by-key, keeping the defaults' position and appending the
       # rest in caller order.
-      def options_segment(raw, typed)
+      def options_segment(raw, typed, expiry)
+        with_expiry(variant_segment(raw, typed), expiry)
+      end
+
+      def variant_segment(raw, typed)
         unless raw.nil? || typed.empty?
           raise ArgumentError,
             "Audioproxy url_for takes either raw: or typed option keys, not both " \
@@ -69,6 +86,7 @@ module Audioproxy
         # overrides rather than two segments that both render (D3). Defaults
         # were resolved at assignment.
         typed = Options.resolve(typed)
+        reject_expiry_option!(typed)
 
         defaults = config.default_options
         typed_defaults = defaults.except(:raw)
@@ -78,6 +96,40 @@ module Audioproxy
         return Options.render(typed_defaults) unless typed_defaults.empty?
 
         FALLBACK_OPTIONS
+      end
+
+      # exp is a *request* option: signed as path bytes, but excluded from the
+      # proxy's cache key, so it is orthogonal to the variant options that
+      # raw: and the typed keys describe and composes with either (D3). It goes
+      # last, which leaves the variant prefix byte-identical to the same call
+      # without an expiry.
+      def with_expiry(segment, expiry)
+        return segment if expiry.nil?
+
+        # A raw: string that already spells out exp: would give the proxy two of
+        # them and a duplicate-option 422 — a failure the caller never wrote if
+        # the second one came from config.expires_in.
+        prefixes = Options::REQUEST_KEYS.map { |key| "#{key}:" }
+        if segment.split("/").any? { |part| prefixes.any? { |prefix| part.start_with?(prefix) } }
+          raise ArgumentError,
+            "Audioproxy url_for was given raw options that already carry an exp: segment " \
+            "(#{segment.inspect}) and an expiry to apply; the proxy rejects a duplicated option. " \
+            "Drop the exp: from raw:, or pass expires_in: nil to opt this URL out"
+        end
+
+        "#{segment}/#{Options.segment(:exp, expiry)}"
+      end
+
+      # exp: written as an ordinary option skips every check in Expiry, and the
+      # two mistakes it invites — a timestamp already past, a millisecond
+      # timestamp — both render a URL that looks right and never works (D1).
+      def reject_expiry_option!(typed)
+        return unless typed.key?(:exp)
+
+        raise ArgumentError,
+          "Audioproxy url_for does not take exp: as an option key; " \
+          "pass expires_in: (a duration from now) or expires_at: (the instant), " \
+          "which validate the value and do the arithmetic"
       end
 
       def raw_segment(raw)

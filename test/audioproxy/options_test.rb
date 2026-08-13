@@ -13,6 +13,7 @@ class Audioproxy::OptionsTest < ActiveSupport::TestCase
     cb: [ "v2", "cb:v2" ],
     ch: [ 1, "ch:1" ],
     dl: [ "piece.mp3", "dl:piece.mp3" ],
+    exp: [ 1767225600, "exp:1767225600" ],
     f: [ :opus, "f:opus" ],
     fade: [ [ 1, 2 ], "fade:1:2" ],
     gain: [ -2.5, "gain:-2.5" ],
@@ -24,8 +25,8 @@ class Audioproxy::OptionsTest < ActiveSupport::TestCase
     t: [ 12.5, "t:12.5" ]
   }.freeze
 
-  test "the key table covers exactly the proxy's fourteen keys" do
-    assert_equal 14, Options::KEYS.size
+  test "the key table covers exactly the proxy's fifteen keys" do
+    assert_equal 15, Options::KEYS.size
     assert_equal Options::KEYS.sort, KEY_EXAMPLES.keys.sort
   end
 
@@ -65,7 +66,8 @@ class Audioproxy::OptionsTest < ActiveSupport::TestCase
       {
         f: :format, br: :bitrate, q: :quality, sr: :sample_rate, ch: :channels,
         bd: :bit_depth, t: :trim, fade: :fade, gain: :gain, norm: :normalize,
-        pts: :peak_count, pk_fmt: :peak_format, dl: :download, cb: :cache_buster
+        pts: :peak_count, pk_fmt: :peak_format, dl: :download, cb: :cache_buster,
+        exp: :expires_at
       },
       Options::ALIASES
     )
