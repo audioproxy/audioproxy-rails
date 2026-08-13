@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.0
 
 * Expiring URLs. `url_for` and every view helper accept `expires_in:` (a duration or Integer
   seconds from now) and `expires_at:` (the instant itself), mutually exclusive, rendering the
