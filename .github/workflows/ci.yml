@@ -37,12 +37,6 @@ jobs:
   test:
     runs-on: ubuntu-latest
 
-    # services:
-    #  redis:
-    #    image: valkey/valkey:8
-    #    ports:
-    #      - 6379:6379
-    #    options: --health-cmd "redis-cli ping" --health-interval 10s --health-timeout 5s --health-retries 5
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
@@ -67,3 +61,45 @@ jobs:
           name: screenshots
           path: ${{ github.workspace }}/tmp/screenshots
           if-no-files-found: ignore
+
+  # Round-trips against a real proxy: the assertions byte comparison cannot
+  # reach. Its own job rather than part of `test`, because it is the one thing
+  # here that depends on a third-party registry being up.
+  #
+  # **Visible but not required** (design D7). This job goes red on failure —
+  # nothing here launders the result — but it is deliberately not in branch
+  # protection's required checks: a required job that pulls an image makes every
+  # merge depend on ghcr, and the unit suite is the real safety net. That is a
+  # repository setting and cannot be asserted from this file, which is why it is
+  # written here and in the README.
+  roundtrip:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: 3.4.1
+          bundler-cache: true
+
+      # Explicitly, and before the suite, so a ghcr outage fails by name rather
+      # than as an errored test somewhere in the middle of a run.
+      #
+      # The tag is *read from the harness* rather than written out again: a
+      # second copy here would drift the moment D8's release checklist advances
+      # one and not the other, and it would drift silently, because CI would go
+      # on pulling an image the suite no longer runs against.
+      - name: Pull the pinned proxy image
+        run: |
+          image=$(ruby -e 'src = File.read("test/support/proxy_container.rb")
+            puts "ghcr.io/audioproxy/audioproxy:" + src[/^\s*TAG\s*=\s*"([^"]+)"/, 1]')
+          echo "Pinned image: $image"
+          docker pull --platform linux/amd64 "$image"
+
+      - name: Run the round-trip tests
+        env:
+          RAILS_ENV: test
+        run: bin/test-server

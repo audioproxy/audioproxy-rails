@@ -1,0 +1,13 @@
+#!/usr/bin/env ruby
+# The `:server` group: round-trips against a real audioproxy container.
+#
+# `bin/test` skips these — it stays a fast, Docker-free unit run. This script
+# opts in and defaults to the group's directory. It needs Docker; the image tag
+# it pins is in test/support/proxy_container.rb.
+$: << File.expand_path("../test", __dir__)
+
+ENV["AUDIOPROXY_SERVER_TESTS"] = "1"
+ARGV << "test/server" if ARGV.empty?
+
+require "bundler/setup"
+require "rails/plugin/test"

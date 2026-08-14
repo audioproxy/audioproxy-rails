@@ -447,6 +447,41 @@ It boots the dummy Rails app in `test/dummy` for the integration tests. Style ch
 bin/rubocop
 ```
 
+### Round-trip tests against a real proxy
+
+`bin/test` checks the bytes this gem produces. It cannot check that a real proxy *accepts* them, and
+some things are not expressible as a byte comparison at all: whether an expired URL is refused with
+`410`, and whether the second `exp` names is still served, are questions only a running proxy
+answers.
+
+Those live in a separate group:
+
+```bash
+bin/test-server
+```
+
+It needs Docker, and it pulls `ghcr.io/audioproxy/audioproxy` at a pinned tag (currently `0.6.0`,
+in `test/support/proxy_container.rb`). The container is booted once, configured with the key and
+salt from the known-answer vectors, and handed a generated WAV over a bind-mounted `AP_LOCAL_ROOT`.
+Nothing else is required: no registry credentials, no fixtures to fetch, no ffmpeg on your side.
+
+The published image is amd64-only, so on Apple Silicon it runs under emulation. Boot costs a few
+seconds; the whole group takes about fifteen.
+
+**`bin/test` never runs this group.** The default suite stays a fast, Docker-free unit run, so a
+contributor who cannot pull an image can still make it green — the group reports as skipped rather
+than failed, and it also skips (rather than failing) if Docker is unreachable.
+
+Two notes on how it is wired in CI:
+
+- The round-trip job is **visible but not required**. It goes red on failure, but it is not in
+  branch protection's required checks: a required job that pulls a third-party image makes every
+  merge depend on that registry being up, and the unit suite is the real safety net.
+- **The pin is advanced by hand, as part of the proxy's release checklist.** A pinned tag nobody
+  advances stops testing anything interesting, and it fails silently — by passing. When the proxy
+  releases, bump `TAG` in `test/support/proxy_container.rb`; CI reads the tag from that file, so
+  there is nothing else to keep in step.
+
 ## License
 
 The gem is available as open source under the terms of the [MIT License](https://opensource.org/licenses/MIT).
