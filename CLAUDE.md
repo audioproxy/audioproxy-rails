@@ -48,10 +48,13 @@ numbered decision (D1, D2, ...), stop and raise it rather than quietly deviating
 implementation does justify a change, amend the decision and the affected specs in the same commit
 as the code, so the artifacts and the behaviour never disagree.
 
-Implement each change on its own branch and worktree:
+Implement each change on its own branch and worktree, through `wt` rather than raw `git worktree` —
+it owns this workflow, and teardown in particular does more than removing a directory:
 
 ```bash
-git worktree add ../audioproxy-rails.<change-name> -b <change-name>
+wt switch --create --yes <change-name>   # create the branch and worktree, and move into it
+wt remove <change-name>                  # after the change is merged and archived; deletes the
+                                         # branch too, if it is merged
 ```
 
 ## Testing
