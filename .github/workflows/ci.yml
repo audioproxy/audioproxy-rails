@@ -37,12 +37,6 @@ jobs:
   test:
     runs-on: ubuntu-latest
 
-    # services:
-    #  redis:
-    #    image: valkey/valkey:8
-    #    ports:
-    #      - 6379:6379
-    #    options: --health-cmd "redis-cli ping" --health-interval 10s --health-timeout 5s --health-retries 5
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
@@ -67,3 +61,73 @@ jobs:
           name: screenshots
           path: ${{ github.workspace }}/tmp/screenshots
           if-no-files-found: ignore
+
+  # Round-trips against a real proxy: the assertions byte comparison cannot
+  # reach. Its own job rather than part of `test`, because it is the one thing
+  # here that depends on a third-party registry being up.
+  #
+  # **Visible but not required** (design D7). This job goes red on failure —
+  # nothing here launders the result — but it is deliberately not in branch
+  # protection's required checks: a required job that pulls an image makes every
+  # merge depend on ghcr, and the unit suite is the real safety net. That is a
+  # repository setting and cannot be asserted from this file, which is why it is
+  # written here and in the README.
+  roundtrip:
+    runs-on: ubuntu-latest
+
+    # A sidecar, not something Ruby starts. Actions owns the lifecycle and the
+    # readiness gate, which is the whole reason the harness has none.
+    #
+    # The tag is pinned rather than `latest`, and it is also written out in
+    # test/support/server_roundtrip.rb. That duplication is deliberate and safe:
+    # the suite asks /health what version answered and refuses to run against a
+    # different one, so the two drifting is a named failure rather than a suite
+    # quietly testing the wrong proxy.
+    services:
+      proxy:
+        image: ghcr.io/audioproxy/audioproxy:0.6.0
+        ports:
+          - 4000:4000
+        env:
+          # Not secrets: these are the published known-answer test vectors, and
+          # test/fixtures/signature_vectors.rb is where they come from. If these
+          # ever drift from that file every signed round-trip 401s at once.
+          AP_KEY: "00112233445566778899AABBCCDDEEFF00112233445566778899AABBCCDDEEFF"
+          AP_SALT: "FFEEDDCCBBAA99887766554433221100"
+          # Signed and unsigned in one container: Signature.verify/2
+          # special-cases only the literal `insecure` segment, so every other
+          # signature still goes through the HMAC comparison.
+          AP_ALLOW_INSECURE: "true"
+          AP_LOCAL_ROOT: /srv/audio
+        # Service containers start before checkout, so this is empty at boot —
+        # which is fine, because a bind mount is a live view: the fixture the
+        # suite writes here appears inside the container immediately.
+        volumes:
+          - /tmp/audioproxy-fixtures:/srv/audio
+        options: >-
+          --health-cmd "wget -q -O /dev/null http://127.0.0.1:4000/health"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+          --health-start-period 10s
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: 3.4.1
+          bundler-cache: true
+
+      # Docker created this as root when it started the service above, so the
+      # runner cannot write the fixture into it without help.
+      - name: Make the fixture directory writable
+        run: sudo chmod 0777 /tmp/audioproxy-fixtures
+
+      - name: Run the round-trip tests
+        env:
+          RAILS_ENV: test
+          AUDIOPROXY_PROXY_URL: http://127.0.0.1:4000
+        run: bin/test test/server

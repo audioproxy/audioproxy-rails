@@ -447,6 +447,63 @@ It boots the dummy Rails app in `test/dummy` for the integration tests. Style ch
 bin/rubocop
 ```
 
+### Round-trip tests against a real proxy
+
+`bin/test` checks the bytes this gem produces. It cannot check that a real proxy *accepts* them, and
+some things are not expressible as a byte comparison at all: whether an expired URL is refused with
+`410`, and whether the second `exp` names is still served, are questions only a running proxy
+answers.
+
+Those tests live in `test/server/`, and they are skipped unless you tell them where a proxy is. The
+gem does not start one for you — start it yourself:
+
+```bash
+mkdir -p /tmp/audioproxy-fixtures
+
+docker run --rm -d --name audioproxy-test \
+  --platform linux/amd64 \
+  -p 4000:4000 \
+  -e AP_KEY=00112233445566778899AABBCCDDEEFF00112233445566778899AABBCCDDEEFF \
+  -e AP_SALT=FFEEDDCCBBAA99887766554433221100 \
+  -e AP_ALLOW_INSECURE=true \
+  -e AP_LOCAL_ROOT=/srv/audio \
+  -v /tmp/audioproxy-fixtures:/srv/audio \
+  ghcr.io/audioproxy/audioproxy:0.6.0
+```
+
+Then point the suite at it:
+
+```bash
+AUDIOPROXY_PROXY_URL=http://127.0.0.1:4000 bin/test test/server
+```
+
+Drop the path to run everything, unit tests included. Stop it with
+`docker rm -f audioproxy-test` when you are done.
+
+The key and salt above are the published known-answer test vectors — not secrets, and the same ones
+in `test/fixtures/signature_vectors.rb`, so the round-trips exercise the bytes those vectors pin.
+The suite writes a generated WAV into `/tmp/audioproxy-fixtures` (override with
+`AUDIOPROXY_FIXTURE_ROOT`), so there is nothing to fetch and you need no ffmpeg on your side.
+`--platform linux/amd64` is there because the published image is amd64-only; on Apple Silicon it
+runs under emulation, and on an amd64 host the flag does nothing.
+
+A few things worth knowing:
+
+- **`AUDIOPROXY_PROXY_URL` unset means skip; set means fail if nothing answers.** Setting it is a
+  claim that a proxy is there, so an unreachable one is an error rather than a quiet pass. That
+  keeps `bin/test` a fast, Docker-free unit run for anyone who cannot pull an image, without
+  letting a broken round-trip environment look like a green one.
+- **The proxy version is checked, not assumed.** The suite asks `/health` what it is talking to and
+  refuses to run against anything but the pinned release, so a mismatch is a named failure rather
+  than a confusing one.
+- **The pin is advanced by hand, as part of the proxy's release checklist.** A pinned tag nobody
+  advances stops testing anything interesting, and it fails silently — by passing. When the proxy
+  releases, bump `PROXY_VERSION` in `test/support/server_roundtrip.rb` and the image in
+  `.github/workflows/ci.yml`. Forgetting one of the two is caught by the version check above.
+- **In CI the proxy is a service container**, and the round-trip job is **visible but not required**:
+  it goes red on failure, but putting it in branch protection would make every merge depend on ghcr
+  being up, and the unit suite is the real safety net.
+
 ## License
 
 The gem is available as open source under the terms of the [MIT License](https://opensource.org/licenses/MIT).
