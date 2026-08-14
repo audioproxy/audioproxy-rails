@@ -27,7 +27,15 @@ module Audioproxy
       # rather than wrong.
       PLATFORM = "linux/amd64".freeze
 
-      NAME = "audioproxy-rails-roundtrip".freeze
+      # Per-process, so two runs on one machine (two terminals, or a `bin/test`
+      # and a `bin/test-server` side by side) cannot evict each other's
+      # container. An earlier version used a fixed name and force-removed it at
+      # boot, which cleaned up after a crashed run by breaking a concurrent one.
+      NAME = "audioproxy-rails-roundtrip-#{Process.pid}".freeze
+
+      # What a crashed run leaves behind is findable without knowing its pid:
+      #   docker rm --force $(docker ps -aq --filter label=#{LABEL})
+      LABEL = "audioproxy-rails-roundtrip".freeze
 
       # The signature vectors' key and salt, so the bytes the round-trip
       # exercises are the bytes the known-answer vectors pin (D4).
@@ -60,10 +68,14 @@ module Audioproxy
           @endpoint ||= boot!
         end
 
+        # Gated on the container having been *started*, not on the boot having
+        # succeeded: a container that came up and never answered /health is
+        # precisely the one that needs removing.
         def stop!
-          return if @endpoint.nil?
+          return unless @started
 
           system("docker", "rm", "--force", NAME, out: File::NULL, err: File::NULL)
+          @started = false
           @endpoint = nil
         end
 
@@ -77,11 +89,10 @@ module Audioproxy
             root = prepare_fixture_root
             port = free_port
 
-            system("docker", "rm", "--force", NAME, out: File::NULL, err: File::NULL)
-
             out, status = Open3.capture2e(
               "docker", "run", "--detach",
               "--name", NAME,
+              "--label", LABEL,
               "--platform", PLATFORM,
               "--publish", "127.0.0.1:#{port}:4000",
               "--env", "AP_KEY=#{KEY}",
@@ -99,9 +110,15 @@ module Audioproxy
               raise "could not start #{describe}: #{out.strip}"
             end
 
+            # Registered *before* the health wait, not after. await_health
+            # raises on a container that started and never became ready, which
+            # is exactly the case where cleanup matters — and the obvious
+            # ordering skips it, leaking the container that just failed to boot.
+            @started = true
+            at_exit { stop! }
+
             url = "http://127.0.0.1:#{port}"
             await_health(url)
-            at_exit { stop! }
             url
           end
 
@@ -136,8 +153,13 @@ module Audioproxy
             root = File.expand_path("../../tmp/roundtrip-root", __dir__)
             FileUtils.mkdir_p(root)
 
+            # Written every time rather than reused. tmp/ survives across runs
+            # and branches, so a file left truncated by a run interrupted
+            # mid-write would otherwise be reused forever — and the symptom is
+            # an ffmpeg decode failure inside the container, which points
+            # nowhere near the cause. Sixteen kilobytes costs nothing.
             path = File.join(root, FIXTURE_NAME)
-            File.binwrite(path, wav) unless File.exist?(path)
+            File.binwrite(path, wav)
 
             # The container runs as uid 1000, which is not necessarily this user.
             FileUtils.chmod(0o755, root)

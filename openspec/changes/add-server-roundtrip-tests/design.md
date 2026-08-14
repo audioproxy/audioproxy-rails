@@ -76,8 +76,18 @@ the literal `insecure` segment, and every other signature still goes through the
 So one container proves both that a signed URL verifies and that an `insecure` one is admitted,
 without weakening the first.
 
-It boots once for the group (`Minitest.after_run` stops it), because an emulated BEAM boot per test
-would dominate the runtime.
+It boots once for the group, because an emulated BEAM boot per test would dominate the runtime, and
+is stopped by an `at_exit` hook registered the moment `docker run` returns.
+
+`at_exit` rather than `Minitest.after_run`, which this decision named until review caught the
+divergence from the code. The hook has to cover the container that started and never became ready:
+`await_health` raises, and a teardown tied to a completed test *run* would leave that container
+behind — the one case where cleanup actually matters. Registering it before the health wait rather
+than after is the same point, and the obvious ordering gets it wrong.
+
+The container is named per-process and labelled `audioproxy-rails-roundtrip`. An earlier version
+used a fixed name and force-removed it at boot, which tidied up after a crashed run by evicting any
+concurrent one; the label is how a crashed run's leftovers are found instead.
 
 The key and salt are `test/fixtures/signature_vectors.rb`'s, reused rather than reinvented so that
 the bytes the round-trip exercises are the bytes the known-answer vectors pin.
@@ -133,11 +143,45 @@ written down here and in the README rather than encoded.
 
 *(Resolves the proposal's third open question, and task 4.3.)*
 
-The maintainer of this gem advances `PROXY_IMAGE_TAG` when the proxy releases. It is recorded in the
+The maintainer of this gem advances `TAG` in `test/support/proxy_container.rb` when the proxy
+releases. It is recorded in the
 README next to the harness, so the person running the round-trip tests reads it, and in the
 container constant, so the person editing the harness does. A pinned tag nobody advances stops
 testing anything interesting; the failure mode of a stale pin is silence, so the reminder belongs
 where it is seen rather than in a process document.
+
+## Review
+
+Reviewed by `kimi-k2.7-code` via opencode, read-only, against a committed tree, with the proxy's
+`v0.6.0` source available so the amendment in D5 could be checked from primary sources rather than
+taken on trust. A self-review was written first and kept sealed until the reviewer returned.
+
+Eight distinct issues between the two, **two of them found twice** — the usual near-zero overlap.
+
+Applied: the expiry window (below), cleanup ordering and the per-process container name (D4), the
+two artifact/code divergences the reviewer caught in this document, an assertion that the signed
+round-trip actually signed, and unconditional fixture rewriting.
+
+**The `exp` window was widened from one second to five**, and the wait is now derived from the `exp`
+the gem emitted rather than a fixed `sleep 2.5`. `expires_in: 1` gave the first request a budget of
+`2.0 - f` seconds — between one and two — to complete a cold ffmpeg render, measured at ~0.5s
+locally. Under 2× margin on an emulated, loaded runner, and blowing it fails the *liveness*
+assertion, reporting a gem defect where the only fact is a slow runner.
+
+### Rejected, with reasons
+
+- **The reviewer's failure case for that window is arithmetically wrong, and it carried its
+  DO-NOT-SHIP verdict.** It had a URL built at `S+0.99` expiring when the proxy evaluates it at
+  `S+1.01`. It does not: `v0.6.0:lib/audio_proxy/expiry.ex:125` is
+  `defp now, do: System.system_time(:second)` — *integer* seconds — so the comparison there is
+  `S+1 > S+1`, which is false. The concern is real and was fixed; the mechanism was not, and the
+  finding was re-graded from HIGH to MEDIUM and from blocking to not.
+- **The `free_port` bind-then-release race** (reviewer, LOW) is real and left alone. It surfaces as
+  a failed `docker run`, which raises with the image named — loud, immediate, and self-explanatory.
+  A retry loop would add a branch that is exercised approximately never.
+- **CI going green on a group that skipped entirely** (self-review, LOW) is already covered: the
+  explicit `docker pull` step fails on both a registry outage and a dead daemon, which are the two
+  ways the group could silently become a no-op. Over-graded when written.
 
 ## Out of scope
 
