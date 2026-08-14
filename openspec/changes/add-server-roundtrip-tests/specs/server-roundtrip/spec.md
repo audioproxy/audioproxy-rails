@@ -1,9 +1,10 @@
 ## ADDED Requirements
 
 ### Requirement: Round-trip verification against a running proxy
-The suite SHALL include a test group, tagged `:server` and excluded from the default run, that
-boots a proxy container at an explicitly pinned image tag and asserts that URLs built by this gem
-are accepted by it.
+The suite SHALL include a test group, tagged `:server` and excluded from the default run, that runs
+against a proxy at an explicitly pinned version and asserts that URLs built by this gem are accepted
+by it. The group SHALL NOT start the proxy: CI runs one as a service container and the README
+documents the command for a local run.
 
 #### Scenario: A signed URL renders
 - **WHEN** a URL built by `url_for` with the container's key and salt is requested
@@ -28,6 +29,11 @@ are accepted by it.
 - **WHEN** `bin/test` runs on a machine with no Docker and no network
 - **THEN** it passes, and the `:server` group is skipped rather than failed
 
+#### Scenario: Asking for the group and not supplying a proxy is a failure
+- **WHEN** the group is pointed at a proxy address and nothing answers there
+- **THEN** it fails rather than skipping, because a run that was asked to exercise a proxy and
+  silently exercised nothing is the one outcome the group must never produce
+
 ### Requirement: Expiry verified end to end
 The `:server` group SHALL verify that an expiring URL behaves at a real proxy as
 `add-expiring-urls` claims, retiring that change's deferred task 3.4.
@@ -47,8 +53,14 @@ The `:server` group SHALL verify that an expiring URL behaves at a real proxy as
   `expiry.ex` and encodes in `add-expiring-urls` D5
 
 ### Requirement: The proxy version under test is pinned and visible
-The harness SHALL name an explicit proxy image tag rather than tracking `latest`, and a failure
-caused by a proxy version mismatch SHALL name the tag it ran against.
+The suite SHALL name an explicit proxy version rather than tracking `latest`, and SHALL verify at
+run time that the proxy answering is that version, refusing to run against any other. A failure
+caused by a version mismatch SHALL name both the version that answered and the one expected.
+
+#### Scenario: The suite reports what actually answered
+- **WHEN** the group is pointed at a proxy of a different version from the pinned one
+- **THEN** it fails naming both versions, rather than running and attributing the resulting
+  disagreement to this gem
 
 #### Scenario: An upstream release cannot silently change this suite
 - **WHEN** the proxy publishes a new release

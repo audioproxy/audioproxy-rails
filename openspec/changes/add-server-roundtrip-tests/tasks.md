@@ -3,9 +3,9 @@
 ## 1. Harness
 
 - [x] 1.1 Decide the source strategy (`local://` with a mounted fixture root vs an `https://` source) and record it in `design.md` — `local://` over a bind-mounted root the tests generate; see D1
-- [x] 1.2 Boot `ghcr.io/audioproxy/audioproxy:0.6.0` (the release that added `exp`) with the key, salt and source root the tests sign against
-- [x] 1.3 A `:server` test tag, excluded from `bin/test` by default and skipped (not failed) when no container is reachable
-- [x] 1.4 A failure message that names the pinned proxy tag, so a version mismatch is legible
+- [x] 1.2 Run against `ghcr.io/audioproxy/audioproxy:0.6.0` (the release that added `exp`) with the key, salt and source root the tests sign against — as a CI service container and a documented `docker run` locally, rather than orchestrated from Ruby; see D2
+- [x] 1.3 A `:server` test tag, excluded from `bin/test` by default — and, per D3, *failing* rather than skipping once a proxy address is supplied and nothing answers it
+- [x] 1.4 A failure message that names the pinned proxy tag, so a version mismatch is legible — and a run-time `/health` check that names both versions and refuses to proceed
 
 ## 2. Round-trips that have never been made
 

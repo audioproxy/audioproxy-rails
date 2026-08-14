@@ -75,6 +75,42 @@ jobs:
   roundtrip:
     runs-on: ubuntu-latest
 
+    # A sidecar, not something Ruby starts. Actions owns the lifecycle and the
+    # readiness gate, which is the whole reason the harness has none.
+    #
+    # The tag is pinned rather than `latest`, and it is also written out in
+    # test/support/server_roundtrip.rb. That duplication is deliberate and safe:
+    # the suite asks /health what version answered and refuses to run against a
+    # different one, so the two drifting is a named failure rather than a suite
+    # quietly testing the wrong proxy.
+    services:
+      proxy:
+        image: ghcr.io/audioproxy/audioproxy:0.6.0
+        ports:
+          - 4000:4000
+        env:
+          # Not secrets: these are the published known-answer test vectors, and
+          # test/fixtures/signature_vectors.rb is where they come from. If these
+          # ever drift from that file every signed round-trip 401s at once.
+          AP_KEY: "00112233445566778899AABBCCDDEEFF00112233445566778899AABBCCDDEEFF"
+          AP_SALT: "FFEEDDCCBBAA99887766554433221100"
+          # Signed and unsigned in one container: Signature.verify/2
+          # special-cases only the literal `insecure` segment, so every other
+          # signature still goes through the HMAC comparison.
+          AP_ALLOW_INSECURE: "true"
+          AP_LOCAL_ROOT: /srv/audio
+        # Service containers start before checkout, so this is empty at boot —
+        # which is fine, because a bind mount is a live view: the fixture the
+        # suite writes here appears inside the container immediately.
+        volumes:
+          - /tmp/audioproxy-fixtures:/srv/audio
+        options: >-
+          --health-cmd "wget -q -O /dev/null http://127.0.0.1:4000/health"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+          --health-start-period 10s
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
@@ -85,21 +121,13 @@ jobs:
           ruby-version: 3.4.1
           bundler-cache: true
 
-      # Explicitly, and before the suite, so a ghcr outage fails by name rather
-      # than as an errored test somewhere in the middle of a run.
-      #
-      # The tag is *read from the harness* rather than written out again: a
-      # second copy here would drift the moment D8's release checklist advances
-      # one and not the other, and it would drift silently, because CI would go
-      # on pulling an image the suite no longer runs against.
-      - name: Pull the pinned proxy image
-        run: |
-          image=$(ruby -e 'src = File.read("test/support/proxy_container.rb")
-            puts "ghcr.io/audioproxy/audioproxy:" + src[/^\s*TAG\s*=\s*"([^"]+)"/, 1]')
-          echo "Pinned image: $image"
-          docker pull --platform linux/amd64 "$image"
+      # Docker created this as root when it started the service above, so the
+      # runner cannot write the fixture into it without help.
+      - name: Make the fixture directory writable
+        run: sudo chmod 0777 /tmp/audioproxy-fixtures
 
       - name: Run the round-trip tests
         env:
           RAILS_ENV: test
-        run: bin/test-server
+          AUDIOPROXY_PROXY_URL: http://127.0.0.1:4000
+        run: bin/test test/server

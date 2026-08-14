@@ -152,6 +152,6 @@ class Audioproxy::RoundtripExpiryTest < ActiveSupport::TestCase
     end
 
     skip "could not land a request inside the expiring second in #{attempts} attempts " \
-         "(the render outran the clock, not a verdict about #{Audioproxy::Test::ProxyContainer.describe})"
+         "(the render outran the clock, not a verdict about #{Audioproxy::Test::ServerRoundtrip.describe})"
   end
 end
