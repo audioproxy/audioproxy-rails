@@ -144,8 +144,8 @@ waveform matches the audio it is drawn under. API v1 §3.3 now lists `t`, `ch`, 
 `gain` and `norm` as respected, and refuses only `br`, `q`, `sr` and `bd` with a `422`. D4's
 allowlist therefore includes `gain` and `norm`.
 
-`enhance` is not in the allowlist because the gem has no `enhance` key yet. When the gem gains it,
-it joins this list.
+`enhance` is not in the allowlist because the gem has no `enhance` key yet. `add-enhance-key` adds
+the key. Whichever of the two changes lands second adds `enhance` to this allowlist.
 
 `pk_bits` (8 or 16, the width of each peaks value) arrives with the proxy's `add-peaks-bit-depth`,
 and this gem adds the key in its own `add-peaks-bit-depth`. Whichever of the two gem changes lands

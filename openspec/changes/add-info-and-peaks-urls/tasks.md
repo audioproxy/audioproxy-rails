@@ -13,6 +13,7 @@
 - [ ] 2.4 Confirm no channel default is materialized when `ch` is absent (D5)
 - [ ] 2.5 Expose `Audioproxy.peaks_url` as a module-level entry point
 - [ ] 2.6 If `add-peaks-bit-depth` has already landed in this gem, add `pk_bits` to the allowlist and test `peaks_url(src, pk_bits: 8)`. If not, that change adds it (D6)
+- [ ] 2.7 If `add-enhance-key` has already landed in this gem, add `enhance` to the allowlist and test `peaks_url(src, enhance: :voice)`. If not, that change adds it (D6)
 
 ## 3. View helpers
 

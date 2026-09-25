@@ -16,3 +16,7 @@
 ## 3. Release
 
 - [ ] 3.1 Hold the release until the proxy change has shipped, so the gem cannot render a segment no deployed proxy accepts
+
+## 4. Archive
+
+- [ ] 4.1 If `add-enhance-key` archived first, add `enhance:` and `enhance`→`enhance` to this change's delta before archiving, so the main spec keeps both keys
