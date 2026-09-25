@@ -78,7 +78,7 @@ since both are builder concerns rather than proxy options.
 - **THEN** an `ArgumentError` is raised naming both `peaks` and the requested format
 
 ### Requirement: Peaks URLs accept only options the peaks renderer reads
-`peaks_url` SHALL accept `pts`, `pk_fmt`, `ch`, `t`, `fade`, `dl` and `cb` (in either spelling) and
+`peaks_url` SHALL accept `pts`, `pk_fmt`, `ch`, `t`, `fade`, `gain`, `norm`, `dl` and `cb` (in either spelling) and
 SHALL raise an `ArgumentError` naming the accepted set for any other option key. An option the peaks
 renderer ignores still enters the proxy's cache key, so accepting one would buy a second cache entry,
 a second stored object and a second render for byte-identical peaks.

@@ -104,7 +104,7 @@ number-formatting and value-escaping rules.
 
 ### D4 — `peaks_url` takes a positive allowlist of options, not a denylist
 
-Accepted: `pts`, `pk_fmt`, `ch`, `t`, `fade`, `dl`, `cb` (and their spelled-out aliases). Everything
+Accepted: `pts`, `pk_fmt`, `ch`, `t`, `fade`, `gain`, `norm`, `dl`, `cb` (and their spelled-out aliases). Everything
 else raises, naming the accepted set.
 
 The reasoning is the cache key, not correctness. §3.3 says peaks ignore encoding options — but §1
@@ -137,16 +137,19 @@ settled that this gem renders what it was given, in the order given, and the pro
 cache identity. Materializing one default here would be the half-normalization that invents a third
 spelling, and it would be the only place in the gem that does it.
 
-### D6 — Peaks ignore `gain` and `norm`, and the allowlist follows the doc rather than intuition
+### D6 — The allowlist follows the proxy's §3.3, which respects `gain` and `norm` for peaks
 
-§3.3 lists `t`, `ch` and `fade` as respected. `gain` and `norm` are not listed, so D4's allowlist
-excludes them and `peaks_url(src, gain: -2.5)` raises.
+The proxy's `peaks-follow-the-variant` change made peaks respect `gain`, `norm` and `enhance`, so a
+waveform matches the audio it is drawn under. API v1 §3.3 now lists `t`, `ch`, `fade`, `enhance`,
+`gain` and `norm` as respected, and refuses only `br`, `q`, `sr` and `bd` with a `422`. D4's
+allowlist therefore includes `gain` and `norm`.
 
-This is worth flagging upstream rather than working around here: a waveform drawn from an
-un-normalized render will not match the amplitude of the `norm:`-normalized audio the player is
-playing, which is a visible mismatch in exactly the UI peaks exist for. If the proxy later respects
-`norm`/`gain` for peaks, this allowlist gains two entries and nothing else changes. See Open
-Questions.
+`enhance` is not in the allowlist because the gem has no `enhance` key yet. When the gem gains it,
+it joins this list.
+
+`pk_bits` (8 or 16, the width of each peaks value) arrives with the proxy's `add-peaks-bit-depth`,
+and this gem adds the key in its own `add-peaks-bit-depth`. Whichever of the two gem changes lands
+second adds `pk_bits` to this allowlist, so `peaks_url(src, pk_bits: 8)` works for peaks.js users.
 
 ### D7 — Two view helpers, no tag helper
 
@@ -185,9 +188,6 @@ comparing to the published signature. The emitted URL still uses `enc/` (the bui
 
 ## Open Questions
 
-- Should the proxy respect `norm` and `gain` for peaks (D6)? A waveform that does not match the
-  normalized audio it accompanies is a UI defect. Raise on the proxy's tracker; this slice ships the
-  doc-faithful allowlist either way and widens later if the answer is yes.
 - Is `info_url` wanted in the `unsigned: true` development mode with a proxy running
   `AP_ALLOW_INSECURE`? It falls out for free from the shared builder path — no reason to special-case
   it — but it should get a test so it is deliberate rather than incidental.

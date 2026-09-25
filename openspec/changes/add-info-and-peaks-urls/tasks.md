@@ -7,11 +7,12 @@
 
 ## 2. Peaks URL
 
-- [ ] 2.1 Add the peaks option allowlist (`pts`, `pk_fmt`, `ch`, `t`, `fade`, `dl`, `cb`) to `Audioproxy::Options`, next to the existing key table and citing API v1 §3.3 (D4, D6)
+- [ ] 2.1 Add the peaks option allowlist (`pts`, `pk_fmt`, `ch`, `t`, `fade`, `gain`, `norm`, `dl`, `cb`) to `Audioproxy::Options`, next to the existing key table and citing API v1 §3.3 (D4, D6)
 - [ ] 2.2 Add `UrlBuilder#peaks_url(source, **options)` that resolves aliases, screens against the allowlist, seeds `f: :peaks`, and delegates to the existing rendering path (D3)
 - [ ] 2.3 Raise `ArgumentError` for a conflicting explicit format, in the register of the existing "given twice" error; accept a redundant `format: :peaks` (D3)
 - [ ] 2.4 Confirm no channel default is materialized when `ch` is absent (D5)
 - [ ] 2.5 Expose `Audioproxy.peaks_url` as a module-level entry point
+- [ ] 2.6 If `add-peaks-bit-depth` has already landed in this gem, add `pk_bits` to the allowlist and test `peaks_url(src, pk_bits: 8)`. If not, that change adds it (D6)
 
 ## 3. View helpers
 
@@ -33,7 +34,7 @@
 - [ ] 5.1 README: an `info` and peaks section under Generating URLs, covering the no-options rule, the defaults asymmetry (D2), the peaks allowlist and why it exists (D4), and the `max-age=3600`-not-`immutable` caching note for info responses
 - [ ] 5.2 README Status paragraph: name the two new URL shapes
 - [ ] 5.3 Replace the placeholder Purpose in `openspec/specs/url-building/spec.md` ("TBD - created by archiving change add-gem-core-signing") as part of the archive step
-- [ ] 5.4 Raise the `norm`/`gain`-for-peaks question on the proxy's issue tracker (D6, Open Questions)
+- [ ] 5.4 Check the allowlist against the proxy's API v1 §3.3 once more before merge. The `norm`/`gain` question is answered: the proxy respects both for peaks (D6)
 
 ## 6. Gates
 

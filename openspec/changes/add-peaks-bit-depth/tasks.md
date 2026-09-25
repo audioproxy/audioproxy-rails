@@ -5,6 +5,7 @@
 - [ ] 1.3 Test that `pk_bits: 8` and `peak_bits: 8` render `pk_bits:8` and produce identical URLs, signature included
 - [ ] 1.4 Test that `bit_depth: 8` still renders `bd:8`, so the two peak-adjacent spellings cannot be confused
 - [ ] 1.5 Test that an out-of-domain value renders rather than raising, per the no-client-side-validation requirement
+- [ ] 1.6 If `add-info-and-peaks-urls` has already landed, add `pk_bits` to the `peaks_url` allowlist and test `peaks_url(src, pk_bits: 8)`. If not, that change adds it (its D6)
 
 ## 2. Documentation
 

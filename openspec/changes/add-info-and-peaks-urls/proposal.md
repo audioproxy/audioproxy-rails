@@ -29,7 +29,7 @@ shipped, so they are now purely additive.
   proxy. Stated as a requirement so it can never be "fixed" into a 422 generator.
 - **New `Audioproxy.peaks_url(source, **options)`**, which is `url_for` with `f:peaks` fixed. It
   accepts only the options the proxy documents as meaningful for peaks (`pts`, `pk_fmt`, `ch`, `t`,
-  `fade`, `dl`, `cb`) and raises on the rest, rather than emitting a URL whose extra segments change
+  `fade`, `gain`, `norm`, `dl`, `cb`) and raises on the rest, rather than emitting a URL whose extra segments change
   the cache key without changing a single returned byte.
 - **New view helpers `audioproxy_info_url` and `audioproxy_peaks_url`**, thin delegations matching
   `audioproxy_url`. No tag helper: peaks are JSON or binary a script fetches, and `info` is JSON —
