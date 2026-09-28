@@ -98,13 +98,21 @@ they are exactly as meaningful for an info URL as for a variant.
 existing "given twice, as bitrate and br" error from `add-option-aliases`. `f: :peaks` or
 `format: :peaks` written explicitly is redundant but harmless, and is accepted.
 
-`f:peaks` is placed in the same position the existing renderer would place it, so `peaks_url` is
-literally `url_for` with a pre-seeded typed hash. This keeps one rendering path and one set of
+`f:peaks` always renders first, whether or not the caller also wrote it and wherever they wrote it,
+so a redundant `format: :peaks` can never move it and produce a second URL for the same peaks. The
+rest renders through the existing `Options.render`, which keeps one rendering path and one set of
 number-formatting and value-escaping rules.
+
+*Amended during implementation.* This decision originally said `peaks_url` is "literally `url_for`
+with a pre-seeded typed hash". That would have merged `config.default_options` in unscreened, and
+with the README's recommended `{ f: :opus, br: 96 }` every `peaks_url(src)` would render
+`f:peaks/br:96`, which proxy v0.8.0 refuses with a `422` (`br` is in its `@peaks_unsupported`). D10
+now governs defaults, so `peaks_url` shares `url_for`'s rendering and assembly but not its defaults
+merge. A per-call `raw:` is rejected, since a pre-rendered string cannot be screened against D4.
 
 ### D4 — `peaks_url` takes a positive allowlist of options, not a denylist
 
-Accepted: `pts`, `pk_fmt`, `ch`, `t`, `fade`, `gain`, `norm`, `dl`, `cb` (and their spelled-out aliases). Everything
+Accepted: `pts`, `pk_fmt`, `pk_bits`, `ch`, `t`, `fade`, `gain`, `norm`, `dl`, `cb` (and their spelled-out aliases). Everything
 else raises, naming the accepted set.
 
 The reasoning is the cache key, not correctness. §3.3 says peaks ignore encoding options — but §1
@@ -150,6 +158,7 @@ the key. Whichever of the two changes lands second adds `enhance` to this allowl
 `pk_bits` (8 or 16, the width of each peaks value) arrives with the proxy's `add-peaks-bit-depth`,
 and this gem adds the key in its own `add-peaks-bit-depth`. Whichever of the two gem changes lands
 second adds `pk_bits` to this allowlist, so `peaks_url(src, pk_bits: 8)` works for peaks.js users.
+The gem's `add-peaks-bit-depth` landed first, so this change adds it.
 
 ### D7 — Two view helpers, no tag helper
 
@@ -166,6 +175,56 @@ that shape, by signing `/info/plain/s3://b/k.wav` through the builder's own sign
 comparing to the published signature. The emitted URL still uses `enc/` (the builder never emits
 `plain/`), so the vector is exercised at the signer boundary, not by round-tripping the whole URL.
 
+### D9 — `info_url` ignores `config.expires_in`, and rejects a per-call expiry
+
+*Added during implementation.* This change was proposed before `add-expiring-urls` landed, so it
+never met `config.expires_in`. The proxy settles the question: API v1 says `/info` has no options
+segment "so it cannot carry `exp`", and frames info URLs as operator-to-operator rather than shared
+with end users. Applying the global expiry would render an options segment and 422 every info
+request, exactly as honouring `default_options` would (D2).
+
+So `info_url` never consults `config.expires_in`, the same way it never consults `default_options`,
+and a per-call `expires_in:` or `expires_at:` with a value raises, naming the reason. An explicit
+`nil` for either is accepted: it asks for no expiry, which is what an info URL has anyway, and it
+lets code that forwards one keyword set to both `url_for` and `info_url` keep working.
+
+The cost is real and recorded: in an app with `config.expires_in` set, info URLs are still eternal
+bearer capabilities. The README says so where it introduces `info_url`.
+
+*Alternative considered:* raising when `config.expires_in` is set unless the call opts out with
+`expires_in: nil`, so the eternal URL is always written at the call site. Rejected as friction on
+every info call in exactly the apps that set a global expiry, for a URL the proxy documents as not
+end-user-facing.
+
+### D10 — `peaks_url` applies only the defaults that mean the same thing for peaks
+
+*Added during implementation*, alongside the D3 amendment, and narrowed after review. Typed
+`default_options` for `t`, `fade`, `gain`, `norm` and `cb` apply to `peaks_url`, merging under
+per-call keys exactly as they do for `url_for` (`Options::PEAKS_DEFAULT_KEYS`). Every other default
+is skipped, and a `raw:` default is skipped entirely because it cannot be screened.
+
+That set is narrower than the D4 allowlist on purpose. `ch` and `dl` are accepted per call, but a
+default was written for audio and they mean something else there: an audio default of `ch: 2` asks
+for stereo output, while on peaks it replaces the mono downmix with per-channel pairs, and a `dl:`
+filename for the audio is never the name for peaks JSON. Both would change what a peaks request
+returns without error. `pts`, `pk_fmt` and `pk_bits` cannot appear in a working audio default at all,
+since the proxy refuses them without `f:peaks`. What remains are the keys that change the samples,
+and the cache buster, whose purpose is to invalidate everything it is applied to. `config.expires_in` applies as it does to `url_for`: a peaks
+URL is a variant URL, and its options segment carries `exp` like any other.
+
+The allowlisted defaults apply, rather than none, because of D6's own reason for the allowlist:
+peaks follow `gain` and `norm` so that a waveform matches the audio drawn under it. An app that sets
+`default_options = { norm: :ebu }` gets normalized audio from `url_for`, and ignoring that default
+here would draw an un-normalized waveform beneath it.
+
+Skipping the rest is not the silent stripping D4 rejects. D4 refuses to drop what the caller wrote
+at this call; a default was written once, for audio, and `f:opus` or `br:96` has no meaning for a
+peaks request. Per-call keys stay strictly screened and still raise.
+
+*Alternatives considered:* ignoring `default_options` entirely, as `info_url` does (simpler, but the
+waveform drifts from normalized audio); and raising when a non-allowlisted default would render
+(loud, but it makes `peaks_url` unusable under the README's recommended configuration).
+
 ## Risks / Trade-offs
 
 - **[D4's allowlist drifts from a future proxy]** → The list transcribes API v1 §3.3 and cites it in
@@ -178,6 +237,9 @@ comparing to the published signature. The emitted URL still uses `enc/` (the bui
   ignores them, which is a genuine inconsistency. Mitigated by the spec requirement, a comment at
   the call site citing §4's 422, and a README sentence. The alternative — honouring them — is a
   guaranteed 422.
+- **[Info URLs never expire, even under `config.expires_in`]** → The proxy grammar cannot carry
+  `exp` on `/info` (D9). Accepted, and stated in the README beside `info_url`, so an operator who set
+  a global expiry learns about the exception from the docs rather than from a leaked URL.
 - **[Peaks URLs and variant URLs diverge in cache behaviour]** → Peaks participate in the cache key,
   write-back and HIT redirect exactly as audio variants do (§3.3, last line), so nothing special is
   needed here. Recorded because it was checked, not assumed.
@@ -191,3 +253,29 @@ comparing to the published signature. The emitted URL still uses `enc/` (the bui
 - Is `info_url` wanted in the `unsigned: true` development mode with a proxy running
   `AP_ALLOW_INSECURE`? It falls out for free from the shared builder path — no reason to special-case
   it — but it should get a test so it is deliberate rather than incidental.
+
+## Review
+
+Reviewed by `kimi-k2.7-code` via opencode, read-only, against a committed tree, with the proxy's
+`v0.8.0` source and API doc available so the three amendments (D3, D9, D10) and the allowlist recheck
+could be verified from primary sources. A self-review was written first and kept sealed until the
+reviewer returned. The reviewer confirmed all four claims and returned SHIP with one NIT.
+
+**The finding that changed the code was the author's, not the reviewer's**, and the brief had asked
+about it directly: whether an allowlisted *default* could change what a peaks request returns. As
+first implemented, D10 carried over every default on the D4 allowlist, so an audio default of
+`ch: 2` turned every `peaks_url` into per-channel pairs and a `dl:` default named peaks JSON after
+the audio file, both without error. Reproduced in a process (`f:peaks/ch:2/dl:piece.opus`), then
+narrowed: D10 now carries over `t`, `fade`, `gain`, `norm` and `cb` only.
+
+One defect was caught during implementation rather than review: `Hash#slice` returned the carried
+defaults in allowlist order rather than the order they were written, giving one variant two
+spellings. It is now `select`, and a test pins the order.
+
+**Rejected, by decision:** the NIT, that a String-keyed `"expires_in"` passed to `info_url` or
+`peaks_url` gets the generic unknown-option message rather than the expiry one. It still raises, and
+`url_for` treats String-keyed builder keywords the same way, so fixing only the new entry points
+would make the three inconsistent.
+
+Not addressed here: no test yet asks a running proxy to accept an info or peaks URL. The round-trip
+harness pins proxy `0.6.0`, which already serves both, so that is a small follow-up.

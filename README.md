@@ -10,7 +10,7 @@ Full Rails is a development dependency only. `require "audioproxy"` works in a p
 
 ## Status
 
-Core signing and typed options work, in both the proxy's short spellings and their aliases, as do the Railtie's credentials/ENV wiring, the view helpers — URL, `<audio>` tag and preload hint — and ActiveStorage resolution for the S3 and Disk services. Blobs on any other service raise; see [ActiveStorage](#activestorage) for what to do about that.
+Core signing and typed options work, in both the proxy's short spellings and their aliases, as do [`info` and peaks URLs](#metadata-and-waveforms), the Railtie's credentials/ENV wiring, the view helpers — URL, `<audio>` tag and preload hint — and ActiveStorage resolution for the S3 and Disk services. Blobs on any other service raise; see [ActiveStorage](#activestorage) for what to do about that.
 
 [Expiring URLs](#expiring-urls) work too, against [audioproxy 0.6.0 or newer](#minimum-proxy-version). One caveat worth knowing either way: everything in this gem is verified against the proxy's published signature vectors and its source, but no test here has yet asked a running proxy whether a generated URL is accepted. That round-trip is the next change.
 
@@ -91,6 +91,24 @@ Audioproxy.url_for("s3://masters/2026/piece-final.wav", raw: "f:opus/br:96")
 ```
 
 The result is `{endpoint}/{signature}/{options}/{source}`. The source is always emitted in `enc/` form (unpadded base64url), so spaces, nested URLs, and already-escaped bytes need no special handling.
+
+### Metadata and waveforms
+
+The proxy answers two more things a player needs around playback, and each has its own entry point:
+
+```ruby
+Audioproxy.info_url("s3://masters/piece.wav")
+# => "https://audio.example.com/…/info/enc/czM6Ly9tYXN0ZXJz…"
+
+Audioproxy.peaks_url("s3://masters/piece.wav", pts: 800, pk_bits: 8)
+# => "https://audio.example.com/…/f:peaks/pts:800/pk_bits:8/enc/czM6Ly9tYXN0ZXJz…"
+```
+
+`info_url` builds the proxy's probe-metadata URL: duration, sample rate, channels and tags as JSON, which is how a player learns the duration it needs before it can write a sensible `t:`. It takes **no options**, because the proxy answers any options segment alongside `info` with a `422`. So it raises for a typed key or `raw:`, and it ignores `config.default_options`, the one entry point that does. It also ignores `config.expires_in` and raises for a per-call `expires_in:` or `expires_at:`, since `/info` has nowhere to carry `exp`: **info URLs never expire, even when every other URL your app builds does.** The proxy treats them as operator-facing rather than something handed to listeners, so keep them that way. Info responses are cached for an hour and are deliberately not `immutable`, because a re-upload changes the answer; do not memoize a response forever.
+
+`peaks_url` is a variant URL with the format fixed to `f:peaks`. It accepts only the options that change a waveform: `pts`, `pk_fmt`, `pk_bits`, `ch`, `t`, `fade`, `gain`, `norm`, `dl` and `cb`, in either spelling. Anything else raises, naming that list. The proxy refuses `br`, `q`, `sr` and `bd` on a peaks request, and an option it merely ignored would still enter its cache key and buy a second render of identical peaks. `raw:` is refused too, because a pre-rendered string cannot be checked; `url_for(source, raw: "f:peaks/…")` stays the escape hatch.
+
+Only some configured defaults carry over to peaks: `t`, `fade`, `gain` and `norm`, which change the samples, so the waveform matches the audio drawn above it, and the cache buster `cb`. The rest are skipped. `f:opus` or `br:96` would render into a `422`, and `ch` and `dl` mean something else as audio defaults: `ch: 2` is stereo output for audio but per-channel pairs for peaks, and an audio filename is the wrong name for peaks JSON. Pass either per call when you want it on the peaks. A `raw:` default is skipped entirely. Expiry works exactly as it does for `url_for`. The gem does not add `ch:1` for you even though peaks default to mono; the proxy fills in its own defaults.
 
 ## Options
 
@@ -357,6 +375,8 @@ Nothing is validated at boot. An app with no credentials and no ENV boots fine �
 ```
 
 The `html:` bucket is not ceremony. Without it, proxy option names and HTML attribute names would share one namespace, and the gem would have to guess which one you meant for any key it did not recognize — so a mistyped `bitrat: 96` would land silently on the `<audio>` element as an attribute and quietly ship the default format instead. With the bucket, the two never mix in either direction: an unknown proxy option raises, and an `html:` entry never reaches the proxy. Proxy options never appear as tag attributes.
+
+`audioproxy_info_url` and `audioproxy_peaks_url` are [`info_url` and `peaks_url`](#metadata-and-waveforms) under view names, as `audioproxy_url` is `url_for`. There are no tag helpers for either: both return JSON (or peaks' binary `.dat`) for a script to fetch, and there is no HTML element to hand them to.
 
 #### Preloading a variant
 

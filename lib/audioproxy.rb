@@ -19,10 +19,21 @@ module Audioproxy
       config
     end
 
-    # Single public entry point: usable from jobs, mailers and serializers of
-    # any Ruby program, Rails or not.
+    # Usable from jobs, mailers and serializers of any Ruby program, Rails or
+    # not, as are the two below.
     def url_for(source, **options)
       UrlBuilder.new(config).url_for(source, **options)
+    end
+
+    # Probe metadata as JSON. Takes no proxy options and ignores the configured
+    # defaults and expiry, because /info can carry neither.
+    def info_url(source, **options)
+      UrlBuilder.new(config).info_url(source, **options)
+    end
+
+    # Waveform peaks: f:peaks fixed, and only the options peaks read.
+    def peaks_url(source, **options)
+      UrlBuilder.new(config).peaks_url(source, **options)
     end
 
     # Anything that is not already a source String is handed to this resolver.

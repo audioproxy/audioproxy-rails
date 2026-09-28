@@ -235,6 +235,47 @@ class Audioproxy::Rails::HelpersTest < ActionView::TestCase
     assert_raises(Audioproxy::UnattachedError) { view.audioproxy_url(Recording.new.audio) }
   end
 
+  # --- audioproxy_info_url and audioproxy_peaks_url -------------------------
+
+  test "audioproxy_info_url returns exactly what Audioproxy.info_url returns" do
+    assert_equal Audioproxy.info_url(SOURCE), view.audioproxy_info_url(SOURCE)
+    assert_equal Audioproxy.info_url(SOURCE, unsigned: true), view.audioproxy_info_url(SOURCE, unsigned: true)
+  end
+
+  test "audioproxy_info_url raises for a proxy option, as the core does" do
+    assert_raises(ArgumentError) { view.audioproxy_info_url(SOURCE, format: :opus) }
+  end
+
+  test "audioproxy_peaks_url returns exactly what Audioproxy.peaks_url returns" do
+    assert_equal Audioproxy.peaks_url(SOURCE, pts: 800), view.audioproxy_peaks_url(SOURCE, pts: 800)
+  end
+
+  test "audioproxy_peaks_url raises for an option peaks do not read, as the core does" do
+    assert_raises(ArgumentError) { view.audioproxy_peaks_url(SOURCE, bitrate: 96) }
+  end
+
+  # Through the same resolver url_for uses, so a blob, an attachment and an
+  # Attached::One all resolve for the two new shapes too.
+  test "attachments and blobs resolve through both new helpers" do
+    recording = attached_recording
+    source = "local://#{disk_path_for(recording)}"
+
+    [ recording.audio, recording.audio_attachment, recording.audio.blob ].each do |attached|
+      assert_equal Audioproxy.info_url(source), view.audioproxy_info_url(attached)
+      assert_equal Audioproxy.peaks_url(source, pts: 800), view.audioproxy_peaks_url(attached, pts: 800)
+    end
+  end
+
+  test "an unattached attachment raises out of both new helpers" do
+    assert_raises(Audioproxy::UnattachedError) { view.audioproxy_info_url(Recording.new.audio) }
+    assert_raises(Audioproxy::UnattachedError) { view.audioproxy_peaks_url(Recording.new.audio) }
+  end
+
+  test "neither new shape has a tag helper" do
+    refute_respond_to view, :audioproxy_info_tag
+    refute_respond_to view, :audioproxy_peaks_tag
+  end
+
   # --- audioproxy_preload_link_tag -----------------------------------------
 
   test "audioproxy_preload_link_tag renders a preload link around the proxy URL" do

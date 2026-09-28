@@ -55,6 +55,22 @@ module Audioproxy
       .merge(KEYS.to_h { |key| [ key, key ] })
       .freeze
 
+    # The keys that reach the proxy's peaks renderer (API v1 §3.3): the peaks
+    # keys themselves, and the ones peaks follow so a waveform matches the
+    # audio drawn under it. A positive list on purpose (D4): an ignored option
+    # still enters the proxy's cache key, so one that slips through buys a
+    # second render of byte-identical peaks, and a key added to the proxy later
+    # is refused here until someone checks it belongs.
+    PEAKS_KEYS = %i[pts pk_fmt pk_bits ch t fade gain norm dl cb].freeze
+
+    # The configured defaults that carry over to peaks (D10): the ones that
+    # change the samples, so a waveform matches the audio drawn above it, and
+    # the cache buster. Narrower than PEAKS_KEYS because a default was written
+    # for audio: ch:2 there means stereo output, but on peaks it means
+    # per-channel pairs instead of the mono downmix, and a dl: filename for the
+    # audio is never the right name for peaks JSON.
+    PEAKS_DEFAULT_KEYS = %i[t fade gain norm cb].freeze
+
     # Keys whose grammar takes colon-separated parts: +t:START[:DURATION]+,
     # +fade:IN[:OUT]+, +norm:ebu[:I[:TP[:LRA]]]+.
     MULTI_PART_KEYS = %i[t fade norm].freeze

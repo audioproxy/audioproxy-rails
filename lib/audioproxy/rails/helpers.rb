@@ -11,6 +11,18 @@ module Audioproxy
         Audioproxy.url_for(source, **options)
       end
 
+      # URL helpers only, with no tag counterparts on purpose (D7): info is
+      # JSON and peaks are JSON or a binary .dat, both fetched by a script, so
+      # there is no element to hand them to. A <div data-peaks-url> convention
+      # would make this gem the keeper of some JavaScript library's markup.
+      def audioproxy_info_url(source, **options)
+        Audioproxy.info_url(source, **options)
+      end
+
+      def audioproxy_peaks_url(source, **options)
+        Audioproxy.peaks_url(source, **options)
+      end
+
       # The html: bucket is the seam between proxy options and tag attributes
       # (D4). Without it, proxy option keys and HTML attribute names share one
       # namespace, and a typoed option lands silently on the <audio> element
