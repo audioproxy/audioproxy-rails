@@ -427,6 +427,37 @@ class Audioproxy::UrlBuilderTest < ActiveSupport::TestCase
     assert_match(/bit_rate/, error.message)
   end
 
+  # --- peaks bit depth -----------------------------------------------------
+
+  test "pk_bits and peak_bits render pk_bits and sign identically" do
+    canonical = @builder.url_for("local://a.wav", f: :peaks, pk_bits: 8)
+
+    assert_includes canonical, "/f:peaks/pk_bits:8/enc/"
+    assert_equal canonical, @builder.url_for("local://a.wav", format: :peaks, peak_bits: 8)
+  end
+
+  # Both are "bits" of something, and the alias table has no format context to
+  # tell them apart, so the two spellings must never meet.
+  test "bit_depth stays bd and never reaches pk_bits" do
+    url = @builder.url_for("local://a.wav", f: :peaks, bit_depth: 8)
+
+    assert_includes url, "/f:peaks/bd:8/enc/"
+    refute_includes url, "pk_bits"
+    refute_equal url, @builder.url_for("local://a.wav", f: :peaks, peak_bits: 8)
+  end
+
+  test "an out-of-domain pk_bits renders for the proxy to reject" do
+    assert_includes @builder.url_for("local://a.wav", f: :peaks, pk_bits: 24), "/f:peaks/pk_bits:24/enc/"
+  end
+
+  # The app-wide peaks.js setup: one default, overridable per call.
+  test "a peak_bits default renders pk_bits and yields to a per-call pk_bits" do
+    @config.default_options = { format: :peaks, peak_bits: 8 }
+
+    assert_includes @builder.url_for("local://a.wav"), "/f:peaks/pk_bits:8/enc/"
+    assert_includes @builder.url_for("local://a.wav", pk_bits: 16), "/f:peaks/pk_bits:16/enc/"
+  end
+
   # --- byte stability ------------------------------------------------------
 
   # This slice must not change a single rendered byte. If any of these pairs
@@ -435,7 +466,7 @@ class Audioproxy::UrlBuilderTest < ActiveSupport::TestCase
     [ { bitrate: 96 }, { br: 96 } ],
     [ { format: :opus, trim: [ 12.5, 30 ] }, { f: :opus, t: [ 12.5, 30 ] } ],
     [ { normalize: [ :ebu, -16, -1.5, 11 ] }, { norm: [ :ebu, -16, -1.5, 11 ] } ],
-    [ { peak_count: 800, peak_format: :dat }, { pts: 800, pk_fmt: :dat } ],
+    [ { peak_count: 800, peak_format: :dat, peak_bits: 8 }, { pts: 800, pk_fmt: :dat, pk_bits: 8 } ],
     [ { sample_rate: 44100, channels: 1, bit_depth: 24 }, { sr: 44100, ch: 1, bd: 24 } ],
     [ { quality: 5, gain: -2.5, fade: [ 1, 2 ] }, { q: 5, gain: -2.5, fade: [ 1, 2 ] } ],
     [ { download: "piece.mp3", cache_buster: "v2" }, { dl: "piece.mp3", cb: "v2" } ]

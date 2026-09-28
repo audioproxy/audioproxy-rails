@@ -11,8 +11,8 @@ module Audioproxy
   # carrying a separator — because a mangled segment is a valid-looking URL for
   # the wrong variant, and it fails at request time, far from here.
   module Options
-    # The proxy's fifteen option keys, canonical short spellings.
-    KEYS = %i[bd br cb ch dl exp f fade gain norm pk_fmt pts q sr t].freeze
+    # The proxy's sixteen option keys, canonical short spellings.
+    KEYS = %i[bd br cb ch dl exp f fade gain norm pk_bits pk_fmt pts q sr t].freeze
 
     # The one *request* option in the grammar: signed as path bytes, but
     # excluded from the proxy's canonical options string, its cache key and its
@@ -26,8 +26,9 @@ module Audioproxy
     # rather read than decode. Total over KEYS, so "does this key have an alias"
     # never has two answers: +fade+ and +gain+ are already words and alias to
     # themselves. The names are the proxy's own where it has one — its Options
-    # struct calls pts +peak_count+ and pk_fmt +peak_format+ — so this is one
-    # vocabulary spelled twice, not a second vocabulary (D2).
+    # struct calls pts +peak_count+, pk_fmt +peak_format+ and pk_bits
+    # +peak_bits+ — so this is one vocabulary spelled twice, not a second
+    # vocabulary (D2). peak_bits is deliberately not bit_depth, which bd owns.
     ALIASES = {
       f: :format,
       br: :bitrate,
@@ -41,6 +42,7 @@ module Audioproxy
       norm: :normalize,
       pts: :peak_count,
       pk_fmt: :peak_format,
+      pk_bits: :peak_bits,
       dl: :download,
       cb: :cache_buster,
       exp: :expires_at
