@@ -12,7 +12,7 @@ Full Rails is a development dependency only. `require "audioproxy"` works in a p
 
 Core signing and typed options work, in both the proxy's short spellings and their aliases, as do [`info` and peaks URLs](#metadata-and-waveforms), the Railtie's credentials/ENV wiring, the view helpers — URL, `<audio>` tag and preload hint — and ActiveStorage resolution for the S3 and Disk services. Blobs on any other service raise; see [ActiveStorage](#activestorage) for what to do about that.
 
-[Expiring URLs](#expiring-urls) work too, against [audioproxy 0.6.0 or newer](#minimum-proxy-version). One caveat worth knowing either way: everything in this gem is verified against the proxy's published signature vectors and its source, but no test here has yet asked a running proxy whether a generated URL is accepted. That round-trip is the next change.
+[Expiring URLs](#expiring-urls) work too, against [audioproxy 0.6.0 or newer](#minimum-proxy-version), and `pk_bits` needs 0.8.0. Everything here is verified against the proxy's published signature vectors and its source, and CI also asks a running proxy to accept signed, unsigned, typed-option and expiring URLs. `info` and peaks URLs are not in that round-trip yet.
 
 ## Installation
 

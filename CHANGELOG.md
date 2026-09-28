@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.3.0
+
+* Probe metadata URLs. `Audioproxy.info_url(source)` and the `audioproxy_info_url` view helper
+  build the proxy's `/info` URL, which returns duration, sample rate, channels and tags as JSON. The
+  proxy's `/info` has no options segment, so `info_url` raises for any option or `raw:`, and ignores
+  `config.default_options` and `config.expires_in`. Info URLs therefore never expire, even when
+  every other URL your app builds does.
+
+* Waveform peaks URLs. `Audioproxy.peaks_url(source, **options)` and the `audioproxy_peaks_url`
+  view helper build a variant URL with `f:peaks` fixed. They accept only the options that change a
+  waveform (`pts`, `pk_fmt`, `pk_bits`, `ch`, `t`, `fade`, `gain`, `norm`, `dl`, `cb`) and raise on
+  the rest, since the proxy refuses encoding options on peaks. Of the configured defaults, only
+  `t`, `fade`, `gain`, `norm` and `cb` carry over, so the waveform follows normalized audio while an
+  audio default such as `br: 96` or `ch: 2` never reaches a peaks request.
+
+* `pk_bits` option, aliased as `peak_bits`: the width of each peaks value, 8 or 16. peaks.js reads
+  only 8-bit data, so a peaks.js client asks for `pk_bits: 8`. Requires audioproxy 0.8.0 or newer;
+  older proxies answer `pk_bits:` with a `422`.
+
+* `url_for` output is unchanged, byte for byte.
+
 ## 0.2.0
 
 * Expiring URLs. `url_for` and every view helper accept `expires_in:` (a duration or Integer
