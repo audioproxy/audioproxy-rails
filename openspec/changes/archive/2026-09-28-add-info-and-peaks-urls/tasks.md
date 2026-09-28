@@ -36,7 +36,7 @@
 
 - [x] 5.1 README: an `info` and peaks section under Generating URLs, covering the no-options rule, the defaults asymmetry (D2), the peaks allowlist and why it exists (D4), and the `max-age=3600`-not-`immutable` caching note for info responses
 - [x] 5.2 README Status paragraph: name the two new URL shapes
-- [ ] 5.3 Replace the placeholder Purpose in `openspec/specs/url-building/spec.md` ("TBD - created by archiving change add-gem-core-signing") as part of the archive step
+- [x] 5.3 Replace the placeholder Purpose in `openspec/specs/url-building/spec.md` ("TBD - created by archiving change add-gem-core-signing") as part of the archive step
 - [x] 5.4 Check the allowlist against the proxy's API v1 §3.3 once more before merge. The `norm`/`gain` question is answered: the proxy respects both for peaks (D6). *Rechecked against proxy v0.8.0: §3.3 and `@peaks_unsupported ~w(br q sr bd)` agree with the allowlist.*
 
 ## 6. Gates
