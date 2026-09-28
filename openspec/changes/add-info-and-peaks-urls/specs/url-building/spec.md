@@ -44,6 +44,24 @@ other entry point: honouring defaults would render an options segment and make e
 - **WHEN** `default_options` is `{ raw: "f:opus/br:96" }` and `Audioproxy.info_url(source)` is called
 - **THEN** the path contains no options segment
 
+### Requirement: Info URLs carry no expiry
+`info_url` SHALL ignore `config.expires_in`, and SHALL raise an `ArgumentError` for a per-call
+`expires_in:` or `expires_at:` with a non-nil value. The proxy's `/info` grammar has no options
+segment and therefore cannot carry `exp`. An explicit `nil` for either SHALL be accepted, since it
+asks for the no-expiry URL that `info_url` builds anyway.
+
+#### Scenario: Global expiry is not applied
+- **WHEN** `config.expires_in` is one hour and `Audioproxy.info_url(source)` is called
+- **THEN** the path is `/{sig}/info/{source-segment}` with no `exp:` segment
+
+#### Scenario: Per-call expiry rejected
+- **WHEN** `Audioproxy.info_url(source, expires_in: 1.hour)` is called
+- **THEN** an `ArgumentError` is raised naming that info URLs cannot carry an expiry
+
+#### Scenario: Explicit nil expiry accepted
+- **WHEN** `Audioproxy.info_url(source, expires_in: nil)` is called
+- **THEN** it returns the same URL as `Audioproxy.info_url(source)`
+
 ### Requirement: Info URLs honour builder overrides
 `info_url` SHALL accept `endpoint:` and `unsigned:` with the same meaning they carry on `url_for`,
 since both are builder concerns rather than proxy options.
@@ -73,15 +91,27 @@ since both are builder concerns rather than proxy options.
 - **WHEN** `Audioproxy.peaks_url(source, format: :peaks)` is called
 - **THEN** the URL is identical to calling `peaks_url(source)` with no format
 
+#### Scenario: The peaks format always renders first
+- **WHEN** `Audioproxy.peaks_url(source, pts: 800, format: :peaks)` is called
+- **THEN** the options segment is `f:peaks/pts:800`, identical to `peaks_url(source, pts: 800)`
+
 #### Scenario: Conflicting explicit format rejected
 - **WHEN** `Audioproxy.peaks_url(source, format: :opus)` is called
 - **THEN** an `ArgumentError` is raised naming both `peaks` and the requested format
 
+#### Scenario: Raw options rejected
+- **WHEN** `Audioproxy.peaks_url(source, raw: "pts:800")` is called
+- **THEN** an `ArgumentError` is raised, since a pre-rendered string cannot be screened against the peaks options
+
+#### Scenario: Expiry applies to peaks URLs
+- **WHEN** `Audioproxy.peaks_url(source, expires_in: 1.hour)` is called
+- **THEN** the options segment is `f:peaks/exp:{timestamp}`, exactly as `url_for` would append it
+
 ### Requirement: Peaks URLs accept only options the peaks renderer reads
-`peaks_url` SHALL accept `pts`, `pk_fmt`, `ch`, `t`, `fade`, `gain`, `norm`, `dl` and `cb` (in either spelling) and
-SHALL raise an `ArgumentError` naming the accepted set for any other option key. An option the peaks
-renderer ignores still enters the proxy's cache key, so accepting one would buy a second cache entry,
-a second stored object and a second render for byte-identical peaks.
+`peaks_url` SHALL accept `pts`, `pk_fmt`, `pk_bits`, `ch`, `t`, `fade`, `gain`, `norm`, `dl` and
+`cb` (in either spelling) and SHALL raise an `ArgumentError` naming the accepted set for any other
+option key. An option the peaks renderer ignores still enters the proxy's cache key, so accepting one
+would buy a second cache entry, a second stored object and a second render for byte-identical peaks.
 
 #### Scenario: Encoding option rejected
 - **WHEN** `Audioproxy.peaks_url(source, bitrate: 96)` is called
@@ -90,6 +120,28 @@ a second stored object and a second render for byte-identical peaks.
 #### Scenario: Time-domain options accepted
 - **WHEN** `Audioproxy.peaks_url(source, trim: [12.5, 30], channels: 2)` is called
 - **THEN** the options segment contains `t:12.5:30` and `ch:2`
+
+#### Scenario: Peaks bit depth accepted
+- **WHEN** `Audioproxy.peaks_url(source, pk_bits: 8)` is called
+- **THEN** the options segment is `f:peaks/pk_bits:8`
+
+### Requirement: Peaks URLs apply only the defaults they accept
+`peaks_url` SHALL apply typed `config.default_options` whose keys are on the peaks allowlist, merged
+under per-call keys as `url_for` merges them, and SHALL skip every other default, including a `raw:`
+default. Defaults are written once for audio variants, and a default such as `br:96` alongside
+`f:peaks` is a `422` from the proxy.
+
+#### Scenario: Audio-only defaults are skipped
+- **WHEN** `default_options` is `{ f: :opus, br: 96 }` and `Audioproxy.peaks_url(source)` is called
+- **THEN** the options segment is `f:peaks`, with no `f:opus` and no `br:96`
+
+#### Scenario: Allowlisted defaults apply
+- **WHEN** `default_options` is `{ f: :opus, norm: :ebu }` and `Audioproxy.peaks_url(source, pts: 800)` is called
+- **THEN** the options segment is `f:peaks/norm:ebu/pts:800`, so the waveform follows the normalized audio
+
+#### Scenario: A raw default is skipped
+- **WHEN** `default_options` is `{ raw: "f:opus/br:96" }` and `Audioproxy.peaks_url(source)` is called
+- **THEN** the options segment is `f:peaks`
 
 ### Requirement: Peaks URLs do not materialize the channel default
 `peaks_url` SHALL NOT emit `ch:1` when no channel count is given, even though the peaks renderer

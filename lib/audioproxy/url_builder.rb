@@ -19,6 +19,11 @@ module Audioproxy
     # always-valid options string is its default format spelled out.
     FALLBACK_OPTIONS = "f:mp3".freeze
 
+    INFO_SEGMENT = "info".freeze
+
+    # Builder keywords that carry an expiry, which /info cannot hold (D9).
+    EXPIRY_KEYWORDS = %i[expires_in expires_at].freeze
+
     attr_reader :config
 
     def initialize(config = Audioproxy.config)
@@ -36,20 +41,32 @@ module Audioproxy
     # overriding +config.expires_in+; either given as nil opts out of it (D6).
     def url_for(source, raw: nil, endpoint: nil, unsigned: nil,
                 expires_in: Expiry::UNSET, expires_at: Expiry::UNSET, **typed)
-      base = endpoint.nil? ? config.endpoint : Config.new.tap { |c| c.endpoint = endpoint }.endpoint
-      raise ConfigurationError, "Audioproxy has no endpoint configured" if base.nil?
+      assemble(source, endpoint: endpoint, unsigned: unsigned) do
+        expiry = expiry_for(expires_in, expires_at)
+        with_expiry(variant_segment(raw, typed), expiry)
+      end
+    end
 
-      # Once per URL, so the window arithmetic and the past-check cannot
-      # straddle a second boundary (D4).
-      expiry = Expiry.timestamp(
-        expires_in: expires_in, expires_at: expires_at,
-        default_expires_in: config.expires_in, now: Time.now.to_i
-      )
+    # The proxy's probe-metadata endpoint, +/{sig}/info/{source}+. API v1 §4:
+    # any options segment alongside +info+ is a 422, and the grammar therefore
+    # cannot carry +exp+ either. So neither +config.default_options+ (D2) nor
+    # +config.expires_in+ (D9) is consulted here — the one entry point that
+    # ignores them, because honouring them would break every info request.
+    def info_url(source, endpoint: nil, unsigned: nil, **options)
+      reject_info_options!(options)
 
-      rest_of_path = "/#{options_segment(raw, typed, expiry)}/#{source_segment(source)}"
-      insecure = unsigned.nil? ? config.unsigned : unsigned
+      assemble(source, endpoint: endpoint, unsigned: unsigned) { INFO_SEGMENT }
+    end
 
-      "#{base}/#{insecure ? INSECURE_SEGMENT : sign(rest_of_path)}#{rest_of_path}"
+    # A variant URL with the format fixed to +f:peaks+. Peaks are a format, not
+    # an endpoint, so this is url_for's grammar with a screened vocabulary: only
+    # Options::PEAKS_KEYS pass, per call and from the defaults (D4, D10).
+    def peaks_url(source, raw: nil, endpoint: nil, unsigned: nil,
+                  expires_in: Expiry::UNSET, expires_at: Expiry::UNSET, **typed)
+      assemble(source, endpoint: endpoint, unsigned: unsigned) do
+        expiry = expiry_for(expires_in, expires_at)
+        with_expiry(peaks_segment(raw, typed), expiry)
+      end
     end
 
     # Signs via Audioproxy::Signer. Whether the config *can* sign is this
@@ -64,14 +81,31 @@ module Audioproxy
     end
 
     private
+      # The block yields the segment between signature and source, and runs
+      # after the endpoint check, so a missing endpoint is reported first.
+      def assemble(source, endpoint:, unsigned:)
+        base = endpoint.nil? ? config.endpoint : Config.new.tap { |c| c.endpoint = endpoint }.endpoint
+        raise ConfigurationError, "Audioproxy has no endpoint configured" if base.nil?
+
+        rest_of_path = "/#{yield}/#{source_segment(source)}"
+        insecure = unsigned.nil? ? config.unsigned : unsigned
+
+        "#{base}/#{insecure ? INSECURE_SEGMENT : sign(rest_of_path)}#{rest_of_path}"
+      end
+
+      # Once per URL, so the window arithmetic and the past-check cannot
+      # straddle a second boundary (D4).
+      def expiry_for(expires_in, expires_at)
+        Expiry.timestamp(
+          expires_in: expires_in, expires_at: expires_at,
+          default_expires_in: config.expires_in, now: Time.now.to_i
+        )
+      end
+
       # Precedence, per D4: an explicit per-call source of options replaces the
       # configured defaults entirely; typed per-call keys merge over typed
       # defaults key-by-key, keeping the defaults' position and appending the
       # rest in caller order.
-      def options_segment(raw, typed, expiry)
-        with_expiry(variant_segment(raw, typed), expiry)
-      end
-
       def variant_segment(raw, typed)
         unless raw.nil? || typed.empty?
           raise ArgumentError,
@@ -96,6 +130,62 @@ module Audioproxy
         return Options.render(typed_defaults) unless typed_defaults.empty?
 
         FALLBACK_OPTIONS
+      end
+
+      # Screened on the keys as written, so an error echoes the spelling the
+      # caller typed rather than a canonical key they never saw.
+      def peaks_segment(raw, typed)
+        unless raw.nil?
+          raise ArgumentError,
+            "Audioproxy peaks_url does not take raw:, because a pre-rendered string cannot be checked " \
+            "against the options peaks accept; use url_for(source, raw: \"f:peaks/…\") to write it whole"
+        end
+
+        written = typed.keys
+        typed = Options.resolve(typed)
+        reject_expiry_option!(typed, "peaks_url")
+
+        if typed.key?(:f)
+          format = typed.delete(:f)
+          unless format == :peaks || format == "peaks"
+            key = written.find { |spelling| Options::CANONICAL[spelling.to_sym] == :f }
+            raise ArgumentError,
+              "Audioproxy peaks_url fixes the format to peaks, but was also given #{key}: #{format.inspect}; " \
+              "use url_for for any other format"
+          end
+        end
+
+        refused = written.reject { |key| [ :f, *Options::PEAKS_KEYS ].include?(Options::CANONICAL[key.to_sym]) }
+        unless refused.empty?
+          raise ArgumentError,
+            "Audioproxy peaks_url does not take #{refused.join(", ")}; peaks accept only " \
+            "#{Options::PEAKS_KEYS.join(", ")}, each also accepted spelled out. Any other option still " \
+            "enters the proxy's cache key, so it would buy a second render of identical peaks, or a 422"
+        end
+
+        # Defaults were written for audio variants, so only the ones peaks read
+        # carry over; f:opus or br:96 beside f:peaks is a 422 (D10). f:peaks
+        # leads regardless, so a redundant format: cannot move it (D3). select,
+        # not slice: slice reorders by its arguments, and defaults keep the
+        # order they were written in, as they do for url_for.
+        defaults = config.default_options.select { |key, _| Options::PEAKS_KEYS.include?(key) }
+        Options.render({ f: :peaks }.merge(defaults).merge(typed))
+      end
+
+      def reject_info_options!(options)
+        expiry = options.slice(*EXPIRY_KEYWORDS).compact
+        unless expiry.empty?
+          raise ArgumentError,
+            "Audioproxy info_url cannot carry an expiry (got #{expiry.keys.join(" and ")}:): the proxy's " \
+            "/info has no options segment, so there is nowhere to put exp. Info URLs do not expire"
+        end
+
+        rest = options.except(*EXPIRY_KEYWORDS)
+        return if rest.empty?
+
+        raise ArgumentError,
+          "Audioproxy info_url takes no proxy options (got #{rest.keys.join(", ")}): the proxy answers " \
+          "any options segment alongside /info with a 422. Use url_for or peaks_url to describe a variant"
       end
 
       # exp is a *request* option: signed as path bytes, but excluded from the
@@ -123,11 +213,11 @@ module Audioproxy
       # exp: written as an ordinary option skips every check in Expiry, and the
       # two mistakes it invites — a timestamp already past, a millisecond
       # timestamp — both render a URL that looks right and never works (D1).
-      def reject_expiry_option!(typed)
+      def reject_expiry_option!(typed, entry = "url_for")
         return unless typed.key?(:exp)
 
         raise ArgumentError,
-          "Audioproxy url_for does not take exp: as an option key; " \
+          "Audioproxy #{entry} does not take exp: as an option key; " \
           "pass expires_in: (a duration from now) or expires_at: (the instant), " \
           "which validate the value and do the arithmetic"
       end

@@ -55,6 +55,14 @@ module Audioproxy
       .merge(KEYS.to_h { |key| [ key, key ] })
       .freeze
 
+    # The keys that reach the proxy's peaks renderer (API v1 §3.3): the peaks
+    # keys themselves, and the ones peaks follow so a waveform matches the
+    # audio drawn under it. A positive list on purpose (D4): an ignored option
+    # still enters the proxy's cache key, so one that slips through buys a
+    # second render of byte-identical peaks, and a key added to the proxy later
+    # is refused here until someone checks it belongs.
+    PEAKS_KEYS = %i[pts pk_fmt pk_bits ch t fade gain norm dl cb].freeze
+
     # Keys whose grammar takes colon-separated parts: +t:START[:DURATION]+,
     # +fade:IN[:OUT]+, +norm:ebu[:I[:TP[:LRA]]]+.
     MULTI_PART_KEYS = %i[t fade norm].freeze
