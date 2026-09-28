@@ -450,6 +450,14 @@ class Audioproxy::UrlBuilderTest < ActiveSupport::TestCase
     assert_includes @builder.url_for("local://a.wav", f: :peaks, pk_bits: 24), "/f:peaks/pk_bits:24/enc/"
   end
 
+  # The app-wide peaks.js setup: one default, overridable per call.
+  test "a peak_bits default renders pk_bits and yields to a per-call pk_bits" do
+    @config.default_options = { format: :peaks, peak_bits: 8 }
+
+    assert_includes @builder.url_for("local://a.wav"), "/f:peaks/pk_bits:8/enc/"
+    assert_includes @builder.url_for("local://a.wav", pk_bits: 16), "/f:peaks/pk_bits:16/enc/"
+  end
+
   # --- byte stability ------------------------------------------------------
 
   # This slice must not change a single rendered byte. If any of these pairs

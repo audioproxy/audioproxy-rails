@@ -19,4 +19,4 @@
 
 ## 4. Archive
 
-- [ ] 4.1 If `add-enhance-key` archived first, add `enhance:` and `enhance`→`enhance` to this change's delta before archiving, so the main spec keeps both keys
+- [x] 4.1 If `add-enhance-key` archived first, add `enhance:` and `enhance`→`enhance` to this change's delta before archiving, so the main spec keeps both keys. *`add-enhance-key` is still active at archive time, so nothing to carry; its own task 3.1 adds `pk_bits` when it archives.*

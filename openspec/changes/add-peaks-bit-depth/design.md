@@ -27,3 +27,20 @@ The `peak_` prefix already carries this distinction for `peak_count`→`pts` and
 **A caller on an older proxy gets a 422 rather than a clear message.** → Accepted, and unchanged from every other option the gem has shipped ahead of a proxy release. The README's "Minimum proxy version" section is the place that records it.
 
 **Ordering.** This must not be released before the proxy change. → The gem raising on an unknown key is not the risk; the risk is a released gem that renders a segment no deployed proxy accepts. Release after, not alongside.
+
+## Review
+
+Reviewed by `kimi-k2.7-code` via opencode, read-only, against a committed tree, with the proxy's
+source and tags available so the implementation's four claims (the proxy's field is `peak_bits`,
+`pk_bits` shipped in `v0.8.0`, older proxies 422 it as an unknown key, and the tasks closed by note
+rather than code) could be checked from primary sources. A self-review was written first and kept
+sealed until the reviewer returned.
+
+Both came back clean, and every claim was confirmed on both sides. The one gap was the author's: no
+test set `peak_bits` through `default_options`, which is how an app standardising on peaks.js would
+actually use it. It worked when run in a process, and is now pinned.
+
+The brief did not name the view helpers, so they were checked afterwards: they pass options through
+to `url_for` untouched and keep no key list of their own that could drift. The `bit_depth` confusion
+the alias decision guards against also fails loudly at the proxy, which answers `bd` under `f:peaks`
+with a 422 (`@peaks_unsupported`), so the likeliest peaks.js mistake cannot quietly yield 16-bit data.
