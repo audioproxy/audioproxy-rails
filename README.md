@@ -115,8 +115,11 @@ Audioproxy.url_for("s3://masters/piece.wav", f: :opus, br: 96, t: [12.5, 30])
 | `norm` | `normalize` | `norm: [:ebu, -16, -1.5, 11]` | loudness normalization: mode, then I, TP, LRA |
 | `pts` | `peak_count` | `pts: 800` | peak points, for waveform output |
 | `pk_fmt` | `peak_format` | `pk_fmt: :json` | peaks format |
+| `pk_bits` | `peak_bits` | `pk_bits: 8` | peaks value width, 8 or 16 |
 | `dl` | `download` | `dl: "piece.mp3"` | download filename |
 | `cb` | `cache_buster` | `cb: "v2"` | cache buster |
+
+If the peaks are for [peaks.js](https://github.com/bbc/peaks.js), ask for `pk_bits: 8`: peaks.js only loads 8-bit waveform data, and the proxy's default width is 16. The alias is `peak_bits` rather than `bit_depth`, because `bit_depth` already means `bd`, the sample format of encoded audio.
 
 Segments render in the order you write the keywords. The gem does not sort them and does not materialize defaults; that is the proxy's normalization, and a half-normalization here would only invent a third spelling. If you want URLs to stay stable across a codebase, keep the argument order stable.
 
@@ -274,7 +277,11 @@ An expiry composes with `raw:` rather than replacing it, since `exp` is not a va
 
 ### Minimum proxy version
 
-Expiring URLs need **audioproxy 0.6.0 or newer**, the release that added the `exp` option. `0.5.0` and earlier answer `exp:` with a `422 invalid option`. That failure is loud and server-side, so pointing this gem at an older proxy breaks visibly rather than silently ignoring the expiry, and every other feature here works against `0.5.0` unchanged. This gem does not version-sniff.
+Expiring URLs need **audioproxy 0.6.0 or newer**, the release that added the `exp` option. `0.5.0` and earlier answer `exp:` with a `422 invalid option`. That failure is loud and server-side, so pointing this gem at an older proxy breaks visibly rather than silently ignoring the expiry.
+
+`pk_bits` needs **audioproxy 0.8.0 or newer**, the release that added it. Older proxies answer `pk_bits:` with a `422` for an unknown key.
+
+Every other feature here works against `0.5.0` unchanged. This gem does not version-sniff.
 
 ## Rails
 
