@@ -125,11 +125,12 @@ would buy a second cache entry, a second stored object and a second render for b
 - **WHEN** `Audioproxy.peaks_url(source, pk_bits: 8)` is called
 - **THEN** the options segment is `f:peaks/pk_bits:8`
 
-### Requirement: Peaks URLs apply only the defaults they accept
-`peaks_url` SHALL apply typed `config.default_options` whose keys are on the peaks allowlist, merged
-under per-call keys as `url_for` merges them, and SHALL skip every other default, including a `raw:`
-default. Defaults are written once for audio variants, and a default such as `br:96` alongside
-`f:peaks` is a `422` from the proxy.
+### Requirement: Peaks URLs apply only the defaults that mean the same thing for peaks
+`peaks_url` SHALL apply typed `config.default_options` for `t`, `fade`, `gain`, `norm` and `cb`,
+merged under per-call keys as `url_for` merges them, and SHALL skip every other default, including a
+`raw:` default. Defaults are written once for audio variants: a default such as `br:96` alongside
+`f:peaks` is a `422` from the proxy, and a `ch:` or `dl:` default would change what a peaks request
+returns without error, so both are skipped as defaults while remaining accepted per call.
 
 #### Scenario: Audio-only defaults are skipped
 - **WHEN** `default_options` is `{ f: :opus, br: 96 }` and `Audioproxy.peaks_url(source)` is called
@@ -138,6 +139,10 @@ default. Defaults are written once for audio variants, and a default such as `br
 #### Scenario: Allowlisted defaults apply
 - **WHEN** `default_options` is `{ f: :opus, norm: :ebu }` and `Audioproxy.peaks_url(source, pts: 800)` is called
 - **THEN** the options segment is `f:peaks/norm:ebu/pts:800`, so the waveform follows the normalized audio
+
+#### Scenario: Channel and filename defaults are skipped
+- **WHEN** `default_options` is `{ f: :opus, ch: 2, dl: "piece.opus" }` and `Audioproxy.peaks_url(source)` is called
+- **THEN** the options segment is `f:peaks`, and `peaks_url(source, ch: 2)` still renders `f:peaks/ch:2`
 
 #### Scenario: A raw default is skipped
 - **WHEN** `default_options` is `{ raw: "f:opus/br:96" }` and `Audioproxy.peaks_url(source)` is called

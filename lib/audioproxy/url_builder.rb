@@ -163,12 +163,12 @@ module Audioproxy
             "enters the proxy's cache key, so it would buy a second render of identical peaks, or a 422"
         end
 
-        # Defaults were written for audio variants, so only the ones peaks read
-        # carry over; f:opus or br:96 beside f:peaks is a 422 (D10). f:peaks
-        # leads regardless, so a redundant format: cannot move it (D3). select,
-        # not slice: slice reorders by its arguments, and defaults keep the
-        # order they were written in, as they do for url_for.
-        defaults = config.default_options.select { |key, _| Options::PEAKS_KEYS.include?(key) }
+        # Defaults were written for audio variants, so only the ones that mean
+        # the same thing for peaks carry over; f:opus or br:96 beside f:peaks is
+        # a 422 (D10). f:peaks leads regardless, so a redundant format: cannot
+        # move it (D3). select, not slice: slice reorders by its arguments, and
+        # defaults keep the order they were written in, as they do for url_for.
+        defaults = config.default_options.select { |key, _| Options::PEAKS_DEFAULT_KEYS.include?(key) }
         Options.render({ f: :peaks }.merge(defaults).merge(typed))
       end
 

@@ -108,7 +108,7 @@ Audioproxy.peaks_url("s3://masters/piece.wav", pts: 800, pk_bits: 8)
 
 `peaks_url` is a variant URL with the format fixed to `f:peaks`. It accepts only the options that change a waveform: `pts`, `pk_fmt`, `pk_bits`, `ch`, `t`, `fade`, `gain`, `norm`, `dl` and `cb`, in either spelling. Anything else raises, naming that list. The proxy refuses `br`, `q`, `sr` and `bd` on a peaks request, and an option it merely ignored would still enter its cache key and buy a second render of identical peaks. `raw:` is refused too, because a pre-rendered string cannot be checked; `url_for(source, raw: "f:peaks/…")` stays the escape hatch.
 
-Configured defaults apply to peaks only where they are on that list, so a `norm:` or `gain:` default reaches the waveform and it matches the audio drawn above it, while `f:opus` or `br:96` defaults are skipped rather than rendered into a `422`. A `raw:` default is skipped entirely. Expiry works exactly as it does for `url_for`. The gem does not add `ch:1` for you even though peaks default to mono; the proxy fills in its own defaults.
+Only some configured defaults carry over to peaks: `t`, `fade`, `gain` and `norm`, which change the samples, so the waveform matches the audio drawn above it, and the cache buster `cb`. The rest are skipped. `f:opus` or `br:96` would render into a `422`, and `ch` and `dl` mean something else as audio defaults: `ch: 2` is stereo output for audio but per-channel pairs for peaks, and an audio filename is the wrong name for peaks JSON. Pass either per call when you want it on the peaks. A `raw:` default is skipped entirely. Expiry works exactly as it does for `url_for`. The gem does not add `ch:1` for you even though peaks default to mono; the proxy fills in its own defaults.
 
 ## Options
 

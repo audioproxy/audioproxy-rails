@@ -44,4 +44,4 @@
 - [x] 6.1 `bin/test` green
 - [x] 6.2 `bin/rubocop` green
 - [x] 6.3 `openspec validate add-info-and-peaks-urls` passes
-- [ ] 6.4 Outside code review per CLAUDE.md, ordered by failure mode: byte-correctness of the info path first, then inputs that produce a plausible-but-wrong URL
+- [x] 6.4 Outside code review per CLAUDE.md, ordered by failure mode: byte-correctness of the info path first, then inputs that produce a plausible-but-wrong URL

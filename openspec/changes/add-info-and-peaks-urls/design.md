@@ -196,12 +196,20 @@ bearer capabilities. The README says so where it introduces `info_url`.
 every info call in exactly the apps that set a global expiry, for a URL the proxy documents as not
 end-user-facing.
 
-### D10 — `peaks_url` applies only the defaults on its allowlist
+### D10 — `peaks_url` applies only the defaults that mean the same thing for peaks
 
-*Added during implementation*, alongside the D3 amendment. Typed `default_options` whose keys are on
-the D4 allowlist apply to `peaks_url`, merging under per-call keys exactly as they do for `url_for`.
-Defaults outside it (`f`, `br`, `q`, `sr`, `bd`, …) are skipped, and a `raw:` default is skipped
-entirely because it cannot be screened. `config.expires_in` applies as it does to `url_for`: a peaks
+*Added during implementation*, alongside the D3 amendment, and narrowed after review. Typed
+`default_options` for `t`, `fade`, `gain`, `norm` and `cb` apply to `peaks_url`, merging under
+per-call keys exactly as they do for `url_for` (`Options::PEAKS_DEFAULT_KEYS`). Every other default
+is skipped, and a `raw:` default is skipped entirely because it cannot be screened.
+
+That set is narrower than the D4 allowlist on purpose. `ch` and `dl` are accepted per call, but a
+default was written for audio and they mean something else there: an audio default of `ch: 2` asks
+for stereo output, while on peaks it replaces the mono downmix with per-channel pairs, and a `dl:`
+filename for the audio is never the name for peaks JSON. Both would change what a peaks request
+returns without error. `pts`, `pk_fmt` and `pk_bits` cannot appear in a working audio default at all,
+since the proxy refuses them without `f:peaks`. What remains are the keys that change the samples,
+and the cache buster, whose purpose is to invalidate everything it is applied to. `config.expires_in` applies as it does to `url_for`: a peaks
 URL is a variant URL, and its options segment carries `exp` like any other.
 
 The allowlisted defaults apply, rather than none, because of D6's own reason for the allowlist:
@@ -245,3 +253,29 @@ waveform drifts from normalized audio); and raising when a non-allowlisted defau
 - Is `info_url` wanted in the `unsigned: true` development mode with a proxy running
   `AP_ALLOW_INSECURE`? It falls out for free from the shared builder path — no reason to special-case
   it — but it should get a test so it is deliberate rather than incidental.
+
+## Review
+
+Reviewed by `kimi-k2.7-code` via opencode, read-only, against a committed tree, with the proxy's
+`v0.8.0` source and API doc available so the three amendments (D3, D9, D10) and the allowlist recheck
+could be verified from primary sources. A self-review was written first and kept sealed until the
+reviewer returned. The reviewer confirmed all four claims and returned SHIP with one NIT.
+
+**The finding that changed the code was the author's, not the reviewer's**, and the brief had asked
+about it directly: whether an allowlisted *default* could change what a peaks request returns. As
+first implemented, D10 carried over every default on the D4 allowlist, so an audio default of
+`ch: 2` turned every `peaks_url` into per-channel pairs and a `dl:` default named peaks JSON after
+the audio file, both without error. Reproduced in a process (`f:peaks/ch:2/dl:piece.opus`), then
+narrowed: D10 now carries over `t`, `fade`, `gain`, `norm` and `cb` only.
+
+One defect was caught during implementation rather than review: `Hash#slice` returned the carried
+defaults in allowlist order rather than the order they were written, giving one variant two
+spellings. It is now `select`, and a test pins the order.
+
+**Rejected, by decision:** the NIT, that a String-keyed `"expires_in"` passed to `info_url` or
+`peaks_url` gets the generic unknown-option message rather than the expiry one. It still raises, and
+`url_for` treats String-keyed builder keywords the same way, so fixing only the new entry points
+would make the three inconsistent.
+
+Not addressed here: no test yet asks a running proxy to accept an info or peaks URL. The round-trip
+harness pins proxy `0.6.0`, which already serves both, so that is a small follow-up.

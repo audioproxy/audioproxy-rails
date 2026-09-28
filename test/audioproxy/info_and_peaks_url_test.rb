@@ -243,10 +243,24 @@ class Audioproxy::InfoAndPeaksUrlTest < ActiveSupport::TestCase
     assert_includes @builder.peaks_url(SOURCE), "/f:peaks/norm:ebu/enc/"
   end
 
-  test "a per-call key overrides an allowlisted default in place" do
-    @config.default_options = { norm: :ebu, pts: 800 }
+  test "a per-call key overrides a carried default in place, and defaults keep their order" do
+    @config.default_options = { norm: :ebu, gain: -3, cb: "v1" }
 
-    assert_includes @builder.peaks_url(SOURCE, peak_count: 400), "/f:peaks/norm:ebu/pts:400/enc/"
+    assert_includes @builder.peaks_url(SOURCE, gain: 2, pts: 400), "/f:peaks/norm:ebu/gain:2/cb:v1/pts:400/enc/"
+  end
+
+  test "the carried defaults are the sample-changing keys and the cache buster" do
+    assert_equal %i[cb fade gain norm t], Audioproxy::Options::PEAKS_DEFAULT_KEYS.sort
+    assert_empty Audioproxy::Options::PEAKS_DEFAULT_KEYS - Audioproxy::Options::PEAKS_KEYS
+  end
+
+  # Allowed per call, but an audio default means something else for peaks:
+  # ch:2 is stereo output there and per-channel pairs here.
+  test "ch and dl defaults are skipped, and still accepted per call" do
+    @config.default_options = { f: :opus, ch: 2, dl: "piece.opus" }
+
+    assert_includes @builder.peaks_url(SOURCE), "/f:peaks/enc/"
+    assert_includes @builder.peaks_url(SOURCE, ch: 2, dl: "peaks.json"), "/f:peaks/ch:2/dl:peaks.json/enc/"
   end
 
   test "a raw default is skipped" do
